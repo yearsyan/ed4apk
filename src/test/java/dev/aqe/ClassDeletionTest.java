@@ -16,6 +16,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
@@ -320,6 +321,74 @@ class ClassDeletionTest {
         assertEquals(List.of("classes2.dex | Lsample/Caller;"), DexEditor.listClasses(output));
         String none = cli(1, "dex", "delete", apk.toString(), "-o", temporary.resolve("none.apk").toString());
         assertTrue(none.contains("No classes given"), none);
+    }
+
+    static Stream<Arguments> mixedDeletionModes() {
+        return Stream.of(Arguments.of(true, false), Arguments.of(false, false),
+                Arguments.of(true, true), Arguments.of(false, true));
+    }
+
+    @ParameterizedTest(name = "optOutFirst={0}, explicitFalse={1}")
+    @MethodSource("mixedDeletionModes")
+    void optOutMustNotDisableOtherDeletionGuards(boolean optOutFirst, boolean explicitFalse) throws Exception {
+        Path apk = fixture(CALL);
+        Path unused = source(CALLER.replace("Lsample/Caller;", "Lsample/Unused;"));
+        Map<String, Object> permissive = Map.of("op", "dex.delete", "classes", List.of("sample.Unused"),
+                "allowReferenced", true);
+        Map<String, Object> guarded = new LinkedHashMap<>(delete("sample.Target"));
+        if (explicitFalse) guarded.put("allowReferenced", false);
+        List<Map<String, Object>> operations = new ArrayList<>();
+        operations.add(Map.of("op", "dex.add", "inputs", List.of(unused.toString())));
+        operations.add(optOutFirst ? permissive : guarded);
+        operations.add(optOutFirst ? guarded : permissive);
+        Path output = temporary.resolve("must-stay-unchanged.apk");
+        Files.writeString(output, "existing output");
+        IOException error = assertThrows(IOException.class, () -> BatchEditor.apply(apk, patch(operations), output, true, null),
+                "sample.Caller still references sample.Target; opting out for sample.Unused must not allow its deletion");
+        assertTrue(error.getMessage().contains("Refusing class deletion"), error.getMessage());
+        assertTrue(error.getMessage().contains("Lsample/Target;"), error.getMessage());
+        assertEquals("existing output", Files.readString(output));
+    }
+
+    @ParameterizedTest(name = "optOutFirst={0}, explicitFalse={1}")
+    @MethodSource("mixedDeletionModes")
+    void mixedDeletionsStillAllowReferencesToExemptClasses(boolean optOutFirst, boolean explicitFalse) throws Exception {
+        Path apk = fixture(CALL);
+        Path unused = source(CALLER.replace("Lsample/Caller;", "Lsample/Unused;"));
+        Map<String, Object> permissive = Map.of("op", "dex.delete", "classes", List.of("sample.Target"),
+                "allowReferenced", true);
+        Map<String, Object> guarded = new LinkedHashMap<>(delete("sample.Unused"));
+        if (explicitFalse) guarded.put("allowReferenced", false);
+        List<Map<String, Object>> operations = new ArrayList<>();
+        operations.add(Map.of("op", "dex.add", "inputs", List.of(unused.toString())));
+        operations.add(optOutFirst ? permissive : guarded);
+        operations.add(optOutFirst ? guarded : permissive);
+        Path output = temporary.resolve("mixed-allowed.apk");
+        BatchEditor.apply(apk, patch(operations), output, false, null);
+        assertEquals(List.of("classes2.dex | Lsample/Caller;"), DexEditor.listClasses(output));
+        assertTrue(DexEditor.exportClass(output, "sample.Caller").contains("Lsample/Target;"));
+    }
+
+    @ParameterizedTest(name = "lastDeletionAllowsReferences={0}")
+    @ValueSource(booleans = {true, false})
+    void lastDeletionControlsTheGuardAfterReaddingAClass(boolean lastAllowsReferences) throws Exception {
+        Path apk = fixture(CALL);
+        Path target = source(TARGET);
+        Path plan = patch(List.of(
+                Map.of("op", "dex.delete", "classes", List.of("sample.Target"), "allowReferenced", !lastAllowsReferences),
+                Map.of("op", "dex.add", "inputs", List.of(target.toString())),
+                Map.of("op", "dex.delete", "classes", List.of("sample.Target"), "allowReferenced", lastAllowsReferences)));
+        Path output = temporary.resolve("readded-policy.apk");
+        if (lastAllowsReferences) {
+            BatchEditor.apply(apk, plan, output, false, null);
+            assertEquals(List.of("classes2.dex | Lsample/Caller;"), DexEditor.listClasses(output));
+            assertTrue(DexEditor.exportClass(output, "sample.Caller").contains("Lsample/Target;"));
+        } else {
+            IOException error = assertThrows(IOException.class, () -> BatchEditor.apply(apk, plan, output, false, null));
+            assertTrue(error.getMessage().contains("Refusing class deletion"), error.getMessage());
+            assertTrue(error.getMessage().contains("Operation #3 (dex.delete)"), error.getMessage());
+            assertFalse(Files.exists(output));
+        }
     }
 
     private String cli(int expected, String... arguments) throws Exception {

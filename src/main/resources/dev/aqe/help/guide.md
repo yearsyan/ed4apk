@@ -127,7 +127,7 @@ AQE 无法恢复原应用私钥。若安装失败，不要自动卸载原应用�
 | file.delete | path:字符串 | 无；目标必须存在；不递归删除目录 |
 | dex.add | inputs:非空路径数组 | dex:"classes.dex"；api:当前 APK minSdk；libraries:[] |
 | dex.replace | inputs:非空路径数组 | api:当前 APK minSdk；libraries:[] |
-| dex.delete | classes:非空类名数组 | 无；全部类必须存在；最终仍有直接引用则整批失败 |
+| dex.delete | classes:非空类名数组 | allowReferenced:false；全部类必须存在；默认最终仍有直接引用则整批失败 |
 | manifest.set | label / versionName / versionCode 至少一个 | label、versionName 是字符串；versionCode 是正整数 |
 | resource.set-string | id:字符串，如 "0x7f010000"；value:字符串 | config:""（默认配置），例如 "en" 或 "-en" |
 
@@ -149,7 +149,7 @@ Windows JSON 路径优先用 `/`；使用反斜杠时必须按 JSON 规则转义
 java -jar aqe.jar dex delete app.apk com.example.Legacy 'Lcom/example/Unused;' -o edited.apk
 ```
 
-`dex delete` 和 apply 的 `dex.delete` 都检查整批操作的最终状态。扫描所有 DEX 中保留的类，
+`dex delete` 和 apply 的 `dex.delete` 默认都检查整批操作的最终状态。扫描所有 DEX 中保留的类，
 检查继承/接口、字段/方法签名、数组元素类型、指令引用、注解及其值、异常处理类型、
 调试局部变量类型、method handle / method type / call site；同时检查 Manifest 中字面量组件类名。
 即使引用只存在于未执行的方法中，也会拒绝删除。
@@ -185,6 +185,38 @@ manifest.set 目前不编辑组件声明。
 资源字符串等不在范围内，也不验证替换/重新添加类后的方法和字段兼容性。
 单独用原始文件操作替换/删除整个 DEX 而不使用 dex.delete，不启用此保护。
 
+### 批量列表与显式豁免
+
+类名较多时，可通过 UTF-8 文件输入，每行一个点分类名或描述符；忽略空行和以 `#` 开头的注释行。
+文件中的类名会与命令行 CLASS 参数合并：
+
+```sh
+java -jar aqe.jar dex delete app.apk --classes-file removal.txt -o edited.apk
+```
+
+做删类实验时，可显式使用 `--allow-referenced`，允许此次选定的类在仍有直接引用时被删除。
+这可能造成运行时类解析失败，需重新测试 APK；`--force` 仍只控制覆盖已有输出。
+
+```sh
+java -jar aqe.jar dex delete app.apk --classes-file removal.txt --allow-referenced -o edited.apk
+```
+
+批处理的对应字段为布尔值 `allowReferenced`，默认是 `false`，不能使用字符串或 null：
+
+```json
+{
+  "version": 1,
+  "operations": [
+    {"op": "dex.delete", "classes": ["com.example.Experimental"], "allowReferenced": true},
+    {"op": "dex.delete", "classes": ["com.example.Legacy"]}
+  ]
+}
+```
+
+豁免只适用于该条操作删除的类。上例中 `Legacy` 仍受保护，有剩余直接引用时整批失败，
+两条操作顺序互换不影响保护范围。同一个类若先删除、再新增、再删除，使用它最后一次删除的设置；
+最终仍存在的类不触发删除检查。
+
 ## 输入选择与功能边界
 
 - Smali 文件/目录：适合精确修改已有类。目录始终按 Smali 处理，不是 JVM class 目录。
@@ -196,7 +228,7 @@ manifest.set 目前不编辑组件声明。
 - 类名可写 `com.example.Main` 或 `Lcom/example/Main;`；shell 中描述符需引号保护分号。
 - 只编辑标准 DEX 035–040，拒绝 041+ 容器。新增类写入指定的现有 DEX，不自动创建或拆分。
 - 不自动修复引用或 Manifest 组件声明。删除类使用 `dex delete` 或 apply 的 dex.delete，
-  有剩余直接引用会失败；删空的 DEX 保留，不自动重排 DEX 文件名。资源 ID 引用不检查。
+  默认有剩余直接引用会失败；显式豁免只影响指定类。删空的 DEX 保留，不自动重排 DEX 文件名。资源 ID 引用不检查。
 - file 操作复制原始数据：文本布局 XML、原始 nine-patch 不会自动编译；新增 res 文件也不会创建资源 ID。
 - 字符串编辑只支持已有资源 ID 的已有简单字符串配置，不支持新增 ID、复杂样式或复数字符串。
 - 修改输出会移除旧签名。签名创建 v2/v3，并在 minSdk < 24 时启用 v1；不生成 v4 idsig。
