@@ -1,0 +1,8 @@
+/build/
+/dist/
+/.gradle/
+/.gradle-user-home/
+*.apk
+*.p12
+*.jks
+.DS_Store

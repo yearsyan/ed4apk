@@ -1,0 +1,22 @@
+--------- beginning of main
+09-19 17:00:07.018 3250811 39547 I Zygote  : seccomp disabled by setenforce 0
+09-19 17:00:07.018 3250811 39547 I v.aqe.smoketest: Late-enabling -Xcheck:jni
+09-19 17:00:07.045 3250811 39547 I v.aqe.smoketest: Using CollectorTypeCMC GC.
+09-19 17:00:07.082 3250811 39547 D nativeloader: Load libframework-connectivity-tiramisu-jni.so using APEX ns com_android_tethering for caller /apex/com.android.tethering/javalib/framework-connectivity-t.jar: ok
+09-19 17:00:07.094 3250811 39547 D CompatibilityChangeReporter: Compat change id reported: 171979766; UID 10128; state: ENABLED
+09-19 17:00:07.095 3250811 39547 D CompatibilityChangeReporter: Compat change id reported: 242716250; UID 10128; state: ENABLED
+09-19 17:00:07.100 3250811 39547 W ziparchive: Unable to open '/data/app/~~W7TbJmxhYogKy9uz2_LBYA==/dev.aqe.smoketest-B3ZJfG4_HZy7rTwE2bAymA==/base.dm': No such file or directory
+09-19 17:00:07.100 3250811 39547 W ziparchive: Unable to open '/data/app/~~W7TbJmxhYogKy9uz2_LBYA==/dev.aqe.smoketest-B3ZJfG4_HZy7rTwE2bAymA==/base.dm': No such file or directory
+09-19 17:00:07.102 3250811 39547 D nativeloader: Configuring clns-4 for other apk /data/app/~~W7TbJmxhYogKy9uz2_LBYA==/dev.aqe.smoketest-B3ZJfG4_HZy7rTwE2bAymA==/base.apk. target_sdk_version=34, uses_libraries=, library_path=/data/app/~~W7TbJmxhYogKy9uz2_LBYA==/dev.aqe.smoketest-B3ZJfG4_HZy7rTwE2bAymA==/lib/arm64:/data/app/~~W7TbJmxhYogKy9uz2_LBYA==/dev.aqe.smoketest-B3ZJfG4_HZy7rTwE2bAymA==/base.apk!/lib/arm64-v8a, permitted_path=/data:/mnt/expand:/data/user/0/dev.aqe.smoketest
+09-19 17:00:07.108 3250811 39547 V GraphicsEnvironment: Currently set values for:
+09-19 17:00:07.108 3250811 39547 V GraphicsEnvironment:   angle_gl_driver_selection_pkgs=[]
+09-19 17:00:07.108 3250811 39547 V GraphicsEnvironment:   angle_gl_driver_selection_values=[]
+09-19 17:00:07.108 3250811 39547 V GraphicsEnvironment: Global.Settings values are invalid: number of packages: 0, number of values: 0
+09-19 17:00:07.108 3250811 39547 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+09-19 17:00:07.141 3250811 39547 D nativeloader: Load /data/app/~~W7TbJmxhYogKy9uz2_LBYA==/dev.aqe.smoketest-B3ZJfG4_HZy7rTwE2bAymA==/base.apk!/lib/arm64-v8a/libaqeprobe.so using ns clns-4 from class loader (caller=<unknown>): ok
+09-19 17:00:07.143 3250811 39547 I AQE_DEVICE_TEST: {"stage":"patched","passed":true,"checks":{"dex_call":true,"secondary_dex":true,"added_class":true,"deleted_class":true,"asset_replace":true,"asset_add":true,"added_asset_content":true,"asset_delete":true,"unchanged_asset":true,"string_resource":true,"resource_file":true,"manifest_label":true,"manifest_version":true,"native_library":true},"values":{"dex_call":"helper-called","secondary_dex":17,"added_class":true,"deleted_class":false,"asset_replace":"new-config","asset_add":true,"added_asset_content":"new-asset","asset_delete":false,"unchanged_asset":"keep","string_resource":"New resource","resource_file":"new-raw","manifest_label":"AQE Edited","manifest_version":2,"native_library":42}}
+09-19 17:00:07.147 3250811 39547 D CompatibilityChangeReporter: Compat change id reported: 279646685; UID 10128; state: DISABLED
+09-19 17:00:07.148 3250811 39547 D CompatibilityChangeReporter: Compat change id reported: 210923482; UID 10128; state: ENABLED
+09-19 17:00:07.148 3250811 39547 D CompatibilityChangeReporter: Compat change id reported: 63938206; UID 10128; state: DISABLED
+09-19 17:00:07.178 3250811 39547 D CompatibilityChangeReporter: Compat change id reported: 237531167; UID 10128; state: DISABLED
+09-19 17:00:07.181 3250811 39547 W HWUI    : Unknown dataspace 0

@@ -1,0 +1,42 @@
+{
+  "operations" : [ {
+    "inputs" : [ "patch-classes/dev/aqe/smoketest/Added.class" ],
+    "dex" : "classes2.dex",
+    "op" : "dex.add"
+  }, {
+    "inputs" : [ "patch-classes/dev/aqe/smoketest/PatchTarget.class" ],
+    "op" : "dex.replace"
+  }, {
+    "classes" : [ "dev.aqe.smoketest.Legacy" ],
+    "op" : "dex.delete"
+  }, {
+    "source" : "config.txt",
+    "path" : "assets/config.txt",
+    "op" : "file.replace"
+  }, {
+    "source" : "added.txt",
+    "path" : "assets/added.txt",
+    "op" : "file.add"
+  }, {
+    "path" : "assets/obsolete.txt",
+    "op" : "file.delete"
+  }, {
+    "source" : "raw.txt",
+    "path" : "res/raw/probe.txt",
+    "op" : "file.replace"
+  }, {
+    "source" : "replacement.so",
+    "path" : "lib/arm64-v8a/libaqeprobe.so",
+    "op" : "file.replace"
+  }, {
+    "versionCode" : 2,
+    "label" : "AQE Edited",
+    "versionName" : "2.0",
+    "op" : "manifest.set"
+  }, {
+    "value" : "New resource",
+    "id" : "0x7f010000",
+    "op" : "resource.set-string"
+  } ],
+  "version" : 1
+}

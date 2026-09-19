@@ -1,0 +1,1 @@
+invoke-static {}, Lcom/example/aqe/Helper;->onEnter()V

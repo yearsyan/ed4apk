@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "operations": [
+    {"op": "file.replace", "path": "assets/config.json", "source": "config.json"},
+    {"op": "file.add", "path": "assets/new.txt", "source": "new.txt"},
+    {"op": "file.delete", "path": "assets/obsolete.txt"}
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "serial": "192.168.9.127:10000",
+  "started": "2026-09-19T17:00:02.081705+00:00",
+  "package": "dev.aqe.smoketest",
+  "passed": true,
+  "device": {
+    "ro.product.model": "P1_EVB",
+    "ro.build.version.release": "14",
+    "ro.build.version.sdk": "34",
+    "ro.product.cpu.abilist": "arm64-v8a",
+    "page_size": "4096"
+  },
+  "baseline": {
+    "stage": "baseline",
+    "passed": true,
+    "checks": {
+      "dex_call": true,
+      "secondary_dex": true,
+      "added_class": true,
+      "deleted_class": true,
+      "asset_replace": true,
+      "asset_add": true,
+      "asset_delete": true,
+      "unchanged_asset": true,
+      "string_resource": true,
+      "resource_file": true,
+      "manifest_label": true,
+      "manifest_version": true,
+      "native_library": true
+    },
+    "values": {
+      "dex_call": "original",
+      "secondary_dex": 17,
+      "added_class": false,
+      "deleted_class": true,
+      "asset_replace": "old-config",
+      "asset_add": false,
+      "asset_delete": true,
+      "unchanged_asset": "keep",
+      "string_resource": "Original resource",
+      "resource_file": "old-raw",
+      "manifest_label": "AQE Original",
+      "manifest_version": 1,
+      "native_library": 7
+    }
+  },
+  "patched": {
+    "stage": "patched",
+    "passed": true,
+    "checks": {
+      "dex_call": true,
+      "secondary_dex": true,
+      "added_class": true,
+      "deleted_class": true,
+      "asset_replace": true,
+      "asset_add": true,
+      "added_asset_content": true,
+      "asset_delete": true,
+      "unchanged_asset": true,
+      "string_resource": true,
+      "resource_file": true,
+      "manifest_label": true,
+      "manifest_version": true,
+      "native_library": true
+    },
+    "values": {
+      "dex_call": "helper-called",
+      "secondary_dex": 17,
+      "added_class": true,
+      "deleted_class": false,
+      "asset_replace": "new-config",
+      "asset_add": true,
+      "added_asset_content": "new-asset",
+      "asset_delete": false,
+      "unchanged_asset": "keep",
+      "string_resource": "New resource",
+      "resource_file": "new-raw",
+      "manifest_label": "AQE Edited",
+      "manifest_version": 2,
+      "native_library": 42
+    }
+  },
+  "uninstalled": true,
+  "finished": "2026-09-19T17:00:08.509417+00:00",
+  "artifacts": {
+    "aqe.jar": {
+      "sha256": "2664bcaa81af9560a9aa871b91ccdc20f711f8823a55a49778f7532ea3a0c3bc",
+      "bytes": 32370137
+    },
+    "base.apk": {
+      "sha256": "276882ecf711cb8404ab182ab096d8befb01c08999b925516f2fd8f1aeafc123",
+      "bytes": 29449
+    },
+    "patched.apk": {
+      "sha256": "07f5c80694d52759f84b2cac9611e78a8f3140430be4eb9e0ececd606dc53a49",
+      "bytes": 37638
+    }
+  },
+  "local_integration_tests": {
+    "tests": 11,
+    "failures": 0,
+    "errors": 0
+  }
+}

@@ -1,0 +1,2 @@
+invoke-static {}, Lcom/example/aqe/Helper;->value()I
+move-result v0
