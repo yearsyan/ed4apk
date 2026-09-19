@@ -290,6 +290,38 @@ class ClassDeletionTest {
         cli(0, "dex", "delete", output.toString(), "sample.Caller", "-o", temporary.resolve("empty-cli.apk").toString());
     }
 
+    @Test void allowReferencedSkipsTheGuardViaPatchFactoryAndJson() throws Exception {
+        Path apk = fixture(CALL);
+        Path output = temporary.resolve("allowed-factory.apk");
+        BatchEditor.apply(apk, PatchPlan.deleteClasses(List.of("sample.Target"), true), output, false, null);
+        assertEquals(List.of("classes2.dex | Lsample/Caller;"), DexEditor.listClasses(output));
+        assertTrue(DexEditor.exportClass(output, "sample.Caller").contains("Lsample/Target;"));
+
+        Path jsonOutput = temporary.resolve("allowed-json.apk");
+        BatchEditor.apply(apk, patch(List.of(Map.of("op", "dex.delete",
+                "classes", List.of("sample.Target"), "allowReferenced", true))), jsonOutput, false, null);
+        assertEquals(List.of("classes2.dex | Lsample/Caller;"), DexEditor.listClasses(jsonOutput));
+
+        Path rejected = temporary.resolve("still-rejected.apk");
+        assertThrows(IOException.class, () -> BatchEditor.apply(apk,
+                patch(List.of(Map.of("op", "dex.delete", "classes", List.of("sample.Target"),
+                        "allowReferenced", "yes"))), rejected, false, null));
+        assertFalse(Files.exists(rejected));
+    }
+
+    @Test void classesFileAndAllowReferencedFlagsDriveTheCli() throws Exception {
+        Path apk = fixture(CALL), output = temporary.resolve("bulk-cli.apk");
+        Path list = Files.createTempFile(temporary, "removal-", ".txt");
+        Files.writeString(list, "# bulk removal\n\nsample.Target\n");
+        cli(1, "dex", "delete", apk.toString(), "--classes-file", list.toString(), "-o", output.toString());
+        assertFalse(Files.exists(output));
+        cli(0, "dex", "delete", apk.toString(), "--classes-file", list.toString(),
+                "--allow-referenced", "-o", output.toString());
+        assertEquals(List.of("classes2.dex | Lsample/Caller;"), DexEditor.listClasses(output));
+        String none = cli(1, "dex", "delete", apk.toString(), "-o", temporary.resolve("none.apk").toString());
+        assertTrue(none.contains("No classes given"), none);
+    }
+
     private String cli(int expected, String... arguments) throws Exception {
         List<String> command = new ArrayList<>(List.of(System.getProperty("aqe.java",
                 Path.of(System.getProperty("java.home"), "bin", "java").toString()), "-jar", System.getProperty("aqe.jar")));

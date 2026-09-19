@@ -80,6 +80,7 @@ final class BatchEditor {
         final Set<String> deletions = new LinkedHashSet<>();
         final Map<String, DexState> dexStates = new LinkedHashMap<>();
         final Map<String, String> deletedClasses = new LinkedHashMap<>();
+        boolean allowReferencedDeletion;
         Map<String, String> owners;
         AndroidManifestBlock manifest;
         TableBlock resources;
@@ -173,6 +174,7 @@ final class BatchEditor {
         void dex(PatchPlan.Operation op) throws Exception {
             indexClasses();
             if (op.kind().equals("dex.delete")) {
+                if (op.optionalFlag("allowReferenced")) allowReferencedDeletion = true;
                 Set<String> types = new LinkedHashSet<>();
                 for (String name : op.strings("classes", true)) {
                     String type = DexEditor.descriptor(name);
@@ -211,7 +213,9 @@ final class BatchEditor {
 
         int finish() throws IOException {
             if (!entries.contains("AndroidManifest.xml")) throw new IOException("Final APK must contain AndroidManifest.xml");
-            if (!deletedClasses.isEmpty()) {
+            // Explicit opt-out: the reference check is the default safety net, not a correctness
+            // requirement for lazy-loading ablation flows where victims stay referenced on purpose.
+            if (!deletedClasses.isEmpty() && !allowReferencedDeletion) {
                 // Reindex the FINAL overlay, including any whole-file DEX replacements made after dex.delete.
                 indexClasses();
                 Map<String, String> absent = new LinkedHashMap<>(deletedClasses);
