@@ -16,8 +16,13 @@ final class PatchPlan {
     List<Operation> operations() { return operations; }
 
     static PatchPlan deleteClasses(List<String> classes) {
+        return deleteClasses(classes, false);
+    }
+
+    static PatchPlan deleteClasses(List<String> classes, boolean allowReferenced) {
         var value = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
         value.put("op", "dex.delete");
+        if (allowReferenced) value.put("allowReferenced", true);
         var names = value.putArray("classes");
         classes.forEach(names::add);
         return new PatchPlan(List.of(new Operation(value, Path.of(".").toAbsolutePath(), 1, "dex.delete")));
@@ -45,7 +50,7 @@ final class PatchPlan {
                     case "file.delete": allowed = Set.of("op", "path"); break;
                     case "dex.add": allowed = Set.of("op", "inputs", "dex", "api", "libraries"); break;
                     case "dex.replace": allowed = Set.of("op", "inputs", "api", "libraries"); break;
-                    case "dex.delete": allowed = Set.of("op", "classes"); break;
+                    case "dex.delete": allowed = Set.of("op", "classes", "allowReferenced"); break;
                     case "manifest.set": allowed = Set.of("op", "label", "versionName", "versionCode"); break;
                     case "resource.set-string": allowed = Set.of("op", "id", "config", "value"); break;
                     default: throw new IOException("Unknown operation: " + kind);
@@ -96,6 +101,12 @@ final class PatchPlan {
             if (!node.isIntegralNumber() || !node.canConvertToInt())
                 throw new IOException(name + " must be a 32-bit integer");
             return node.intValue();
+        }
+        boolean optionalFlag(String name) throws IOException {
+            if (!value.has(name)) return false;
+            JsonNode node = value.get(name);
+            if (!node.isBoolean()) throw new IOException(name + " must be a boolean");
+            return node.booleanValue();
         }
         List<String> strings(String name, boolean required) throws IOException {
             if (!required && !value.has(name)) return List.of();

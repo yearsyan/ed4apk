@@ -130,8 +130,10 @@ public final class Main implements Runnable {
                     "Operations run in order: add requires absence; replace/delete require existence.",
                     "Whole-file replacement supersedes earlier edits to that file. Each changed DEX is written once.",
                     "Any failure (including signing) leaves input and existing output intact; errors identify the operation.",
-                    "dex.delete checks all final DEX classes and literal Manifest component names; remaining direct references reject the entire output.",
+                    "By default, dex.delete checks all final DEX classes and literal Manifest component names; remaining direct references reject the entire output.",
                     "Fix/remove callers in the same patch. The final state is checked, so delete/repair order does not matter. --force cannot bypass this check.",
+                    "dex.delete accepts {\"allowReferenced\":true} to exempt only classes deleted by that operation; other deletions keep their checks.",
+                    "If a class is deleted, re-added and deleted again, its last deletion's setting applies. Missing classes may fail at runtime (see dex delete --help).",
                     "Reflection/JNI/dynamic loading, XML/resource class strings and member compatibility are outside the check. Raw DEX file operations alone do not enable it.",
                     "Calls to added classes and resource references must be updated by your patch.",
                     "Without --ks/--alias the result is unsigned. Signing password defaults to env AQE_KS_PASS.",
@@ -164,21 +166,43 @@ public final class Main implements Runnable {
     static class Dex {}
 
     @Command(name = "delete", mixinStandardHelpOptions = true,
-            description = "Delete classes only if no remaining static references target them",
+            description = "Delete classes; by default only if no remaining static references target them",
             footer = {"", "Example: aqe dex delete app.apk com.example.Legacy 'Lcom/example/Unused;' -o edited.apk",
-                    "Scans all remaining DEX classes (including signatures, annotations and instructions) and literal Manifest component names.",
+                    "Bulk input: aqe dex delete app.apk --classes-file removal.txt --allow-referenced -o edited.apk",
+                    "  --classes-file lists one class name or descriptor per line; blank lines and '#' comments are ignored.",
+                    "By default, scans all remaining DEX classes (including signatures, annotations and instructions) and literal Manifest component names.",
                     "Any reference rejects the entire output, even with --force. --force only permits replacing an existing output file.",
                     "Use apply with dex.replace + dex.delete to fix callers and delete classes in one transaction.",
                     "The check uses the final patch state; mutually referring classes can be deleted together.",
+                    "--allow-referenced exempts the selected classes from the reference check; remaining references may fail at runtime.",
+                    "Use it for ablation/shrinking experiments that re-test the APK afterwards.",
+                    "In apply, {\"allowReferenced\":true} on dex.delete exempts only that operation's classes; other deletions remain guarded.",
+                    "For a class deleted, re-added and deleted again, its last deletion's setting applies.",
                     "Reflection strings, JNI, dynamic code and resource/XML class names are outside this static check.",
                     "This is a class-deletion guard, not a general method/field linker or a guarantee of runtime correctness."})
     static class DexDelete implements Callable<Integer> {
         @Parameters(index = "0", paramLabel = "APK", description = "Input APK file") Path apk;
-        @Parameters(index = "1..*", arity = "1..*", paramLabel = "CLASS", description = "Existing class names or DEX descriptors")
+        @Parameters(index = "1..*", arity = "0..*", paramLabel = "CLASS", description = "Existing class names or DEX descriptors")
         List<String> classes;
+        @Option(names = "--classes-file", paramLabel = "FILE",
+                description = "Class list file: one name per line; '#' comments and blank lines ignored; combined with CLASS arguments")
+        Path classesFile;
+        @Option(names = "--allow-referenced",
+                description = "Delete even if remaining classes reference the victims; skips the reference check (lazy-loading ablation)")
+        boolean allowReferenced;
         @Mixin Output output;
         public Integer call() throws Exception {
-            BatchEditor.apply(apk, PatchPlan.deleteClasses(classes), output.path, output.force, null);
+            Set<String> all = new LinkedHashSet<>();
+            if (classes != null) all.addAll(classes);
+            if (classesFile != null) {
+                for (String line : Files.readAllLines(classesFile)) {
+                    String name = line.strip();
+                    if (name.isEmpty() || name.startsWith("#")) continue;
+                    all.add(name);
+                }
+            }
+            if (all.isEmpty()) throw new IllegalArgumentException("No classes given: pass CLASS arguments and/or --classes-file");
+            BatchEditor.apply(apk, PatchPlan.deleteClasses(List.copyOf(all), allowReferenced), output.path, output.force, null);
             output.unsigned();
             return 0;
         }

@@ -79,7 +79,8 @@ final class BatchEditor {
         final Map<String, ApkArchive.Replacement> replacements = new LinkedHashMap<>();
         final Set<String> deletions = new LinkedHashSet<>();
         final Map<String, DexState> dexStates = new LinkedHashMap<>();
-        final Map<String, String> deletedClasses = new LinkedHashMap<>();
+        // Classes whose last explicit deletion still requires a reference check.
+        final Map<String, String> guardedDeletions = new LinkedHashMap<>();
         Map<String, String> owners;
         AndroidManifestBlock manifest;
         TableBlock resources;
@@ -173,6 +174,7 @@ final class BatchEditor {
         void dex(PatchPlan.Operation op) throws Exception {
             indexClasses();
             if (op.kind().equals("dex.delete")) {
+                boolean allowReferenced = op.optionalFlag("allowReferenced");
                 Set<String> types = new LinkedHashSet<>();
                 for (String name : op.strings("classes", true)) {
                     String type = DexEditor.descriptor(name);
@@ -183,7 +185,10 @@ final class BatchEditor {
                     DexState state = dexStates.get(owners.remove(type));
                     state.classes.remove(type);
                     state.lastEdit = op.context();
-                    deletedClasses.put(type, op.context());
+                    // A class may be deleted, re-added, and deleted again in one patch.
+                    // Only that class's latest deletion can change its guard policy.
+                    if (allowReferenced) guardedDeletions.remove(type);
+                    else guardedDeletions.put(type, op.context());
                 }
                 return;
             }
@@ -211,10 +216,10 @@ final class BatchEditor {
 
         int finish() throws IOException {
             if (!entries.contains("AndroidManifest.xml")) throw new IOException("Final APK must contain AndroidManifest.xml");
-            if (!deletedClasses.isEmpty()) {
+            if (!guardedDeletions.isEmpty()) {
                 // Reindex the FINAL overlay, including any whole-file DEX replacements made after dex.delete.
                 indexClasses();
-                Map<String, String> absent = new LinkedHashMap<>(deletedClasses);
+                Map<String, String> absent = new LinkedHashMap<>(guardedDeletions);
                 absent.keySet().removeAll(owners.keySet());
                 if (!absent.isEmpty()) {
                     ClassDeletionGuard guard = new ClassDeletionGuard(absent);
