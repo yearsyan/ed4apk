@@ -50,9 +50,10 @@ def main():
     def adb(*command, **kwargs):
         return run(["adb", "-s", args.serial, *command], **kwargs)
 
-    def aqe(*command):
+    def aqe(*command, quiet=False):
         result = run([java, "-jar", jar, *command])
-        print(result, flush=True)
+        if not quiet:
+            print(result, flush=True)
         return result
 
     report = {"serial": args.serial, "started": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -90,6 +91,21 @@ def main():
         aqe("sign", output / "base-unsigned.apk", *signing, "-o", base_apk)
         aqe("apply", base_apk, "--patch", output / "patch.json", *signing, "-o", patched_apk)
         aqe("verify", patched_apk)
+        rename_plan = output / "rename.json"
+        renamed_classes = {"MainActivity": "RenamedActivity", "OtherDex": "RenamedOtherDex", "ProbeView": "RenamedView"}
+        rename_plan.write_text(json.dumps({"version": 1, "operations": [
+            {"op": "dex.rename", "from": PACKAGE + "." + old, "to": PACKAGE + "." + new}
+            for old, new in renamed_classes.items()]}, indent=2) + "\n")
+        renamed_apk = output / "renamed.apk"
+        aqe("apply", patched_apk, "--patch", rename_plan, *signing, "-o", renamed_apk)
+        aqe("verify", renamed_apk)
+        for old, new in renamed_classes.items():
+            if json.loads(aqe("dex", "refs", renamed_apk, PACKAGE + "." + old, "--json", quiet=True)):
+                raise RuntimeError("Old static references remain: " + old)
+            hits = json.loads(aqe("dex", "refs", renamed_apk, PACKAGE + "." + new, "--json", quiet=True))
+            if not any(hit["definition"] for hit in hits):
+                raise RuntimeError("Renamed class definition missing: " + new)
+        print("Static rename reference checks: PASS", flush=True)
 
         def exercise(stage, apk):
             nonlocal installed
@@ -100,7 +116,8 @@ def main():
             installed = True
             adb("shell", "am", "force-stop", PACKAGE)
             adb("shell", "run-as", PACKAGE, "rm", "-f", "files/result.json")
-            started = adb("shell", "am", "start", "-W", "-n", PACKAGE + "/.MainActivity", "--es", "stage", stage)
+            activity = "/.RenamedActivity" if stage == "renamed" else "/.MainActivity"
+            started = adb("shell", "am", "start", "-W", "-n", PACKAGE + activity, "--es", "stage", stage)
             (output / (stage + "-launch.txt")).write_text(started)
             deadline = time.monotonic() + 15
             result = None
@@ -129,6 +146,9 @@ def main():
         # am start waits for launch; give the small result TextView one frame to draw.
         time.sleep(0.5)
         (output / "patched.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
+        exercise("renamed", renamed_apk)
+        time.sleep(0.5)
+        (output / "renamed.png").write_bytes(adb("exec-out", "screencap", "-p", binary=True))
         report["passed"] = True
     except Exception as error:
         report["error"] = str(error)

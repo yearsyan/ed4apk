@@ -162,15 +162,80 @@ public final class Main implements Runnable {
     @Command(name = "dex", mixinStandardHelpOptions = true, description = "Read and edit DEX classes",
             footer = {"", "Class names accept com.example.Main or 'Lcom/example/Main;'.",
                     "Use aqe dex COMMAND --help for examples. Safe deletion: dex delete, or dex.delete in apply."},
-            subcommands = {DexList.class, DexExport.class, DexReplace.class, DexAdd.class, DexDelete.class})
+            subcommands = {DexList.class, DexExport.class, DexReplace.class, DexAdd.class, DexDelete.class,
+                    DexRefs.class, DexRename.class})
     static class Dex {}
+
+    @Command(name = "refs", mixinStandardHelpOptions = true,
+            description = "Find a class definition and supported static references across DEX, Manifest and resource XML",
+            footer = {"", "Example: aqe dex refs app.apk com.example.Main --json",
+                    "Reports entry, owning class (DEX), location, target and definition flag; missing classes can be queried.",
+                    "Uses the same XML rules as dex rename; see --help-all for supported slots and exclusions.",
+                    "Reflection/JNI and arbitrary strings are not scanned. Unresolvable known XML class slots fail closed."})
+    static class DexRefs implements Callable<Integer> {
+        @Parameters(index = "0", paramLabel = "APK") Path apk;
+        @Parameters(index = "1", paramLabel = "CLASS") String name;
+        @Option(names = "--json", description = "Print a JSON array of reference locations") boolean json;
+        public Integer call() throws Exception {
+            var hits = BatchEditor.references(apk, name);
+            if (json) printJson(hits);
+            else {
+                hits.forEach(System.out::println);
+                System.out.println("Found " + hits.size() + " locations (including definitions).");
+            }
+            return 0;
+        }
+    }
+
+    @Command(name = "rename", mixinStandardHelpOptions = true,
+            description = "Rename one class within its package and update supported static references atomically",
+            footer = {"", "Preview: aqe dex rename app.apk com.example.Old com.example.New --dry-run --json",
+                    "Apply:   aqe dex rename app.apk com.example.Old com.example.New -o renamed.apk",
+                    "Batch:   {\"op\":\"dex.rename\",\"from\":\"com.example.Old\",\"to\":\"com.example.New\"}",
+                    "Accepts Java names or DEX descriptors. Source must exist; destination must be absent and unreferenced.",
+                    "Cross-package moves are rejected to preserve package access. Inner classes are not renamed implicitly.",
+                    "Rewrites typed DEX references and known class slots in Manifest/layout/navigation/preference XML.",
+                    "Reflection/JNI, arbitrary strings, generic signature strings and custom XML conventions are excluded.",
+                    "--dry-run validates and serializes changes in memory without writing an APK. Output is otherwise unsigned.",
+                    "See --help-all for the supported XML slots, resource indirection and batch examples."})
+    static class DexRename implements Callable<Integer> {
+        @Parameters(index = "0", paramLabel = "APK") Path apk;
+        @Parameters(index = "1", paramLabel = "FROM") String from;
+        @Parameters(index = "2", paramLabel = "TO") String to;
+        @Option(names = {"-o", "--output"}, paramLabel = "APK", description = "Output APK; required unless --dry-run") Path output;
+        @Option(names = "--force", description = "Allow replacing the output file") boolean force;
+        @Option(names = "--dry-run", description = "Validate and report edits without publishing output") boolean dryRun;
+        @Option(names = "--json", description = "Print the --dry-run report as JSON") boolean json;
+        public Integer call() throws Exception {
+            if (dryRun) {
+                if (output != null || force) throw new IllegalArgumentException("--dry-run does not accept --output or --force");
+                var report = BatchEditor.previewRename(apk, from, to);
+                if (json) printJson(report);
+                else {
+                    System.out.println(report.get("from") + " -> " + report.get("to"));
+                    for (Object hit : (List<?>) report.get("references")) System.out.println(hit);
+                    System.out.println("Would rewrite: " + report.get("changedEntries"));
+                }
+            } else {
+                if (output == null) throw new IllegalArgumentException("Missing --output (or use --dry-run)");
+                if (json) throw new IllegalArgumentException("--json requires --dry-run");
+                BatchEditor.apply(apk, PatchPlan.renameClass(from, to), output, force, null);
+                System.out.println("Wrote unsigned APK: " + output + " (use aqe sign to install)");
+            }
+            return 0;
+        }
+    }
+
+    private static void printJson(Object value) throws IOException {
+        System.out.println(new com.fasterxml.jackson.databind.ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(value));
+    }
 
     @Command(name = "delete", mixinStandardHelpOptions = true,
             description = "Delete classes; by default only if no remaining static references target them",
             footer = {"", "Example: aqe dex delete app.apk com.example.Legacy 'Lcom/example/Unused;' -o edited.apk",
                     "Bulk input: aqe dex delete app.apk --classes-file removal.txt --allow-referenced -o edited.apk",
                     "  --classes-file lists one class name or descriptor per line; blank lines and '#' comments are ignored.",
-                    "By default, scans all remaining DEX classes (including signatures, annotations and instructions) and literal Manifest component names.",
+                    "By default, scans all remaining DEX classes and supported class slots in Manifest and resource XML.",
                     "Any reference rejects the entire output, even with --force. --force only permits replacing an existing output file.",
                     "Use apply with dex.replace + dex.delete to fix callers and delete classes in one transaction.",
                     "The check uses the final patch state; mutually referring classes can be deleted together.",
@@ -178,7 +243,7 @@ public final class Main implements Runnable {
                     "Use it for ablation/shrinking experiments that re-test the APK afterwards.",
                     "In apply, {\"allowReferenced\":true} on dex.delete exempts only that operation's classes; other deletions remain guarded.",
                     "For a class deleted, re-added and deleted again, its last deletion's setting applies.",
-                    "Reflection strings, JNI, dynamic code and resource/XML class names are outside this static check.",
+                    "Reflection strings, JNI, dynamic code and custom XML conventions are outside this static check; see --help-all.",
                     "This is a class-deletion guard, not a general method/field linker or a guarantee of runtime correctness."})
     static class DexDelete implements Callable<Integer> {
         @Parameters(index = "0", paramLabel = "APK", description = "Input APK file") Path apk;

@@ -1,6 +1,6 @@
 # batch：混合操作与签名
 
-这是全部八种操作的格式模板，不是适用于任意 APK 的补丁。先按目标 APK 调整：
+这是全部九种操作的格式模板，不是适用于任意 APK 的补丁。先按目标 APK 调整：
 
 - Helper.smali 必须是不存在的新类；Main.smali 必须来自目标已有类的完整导出并已编辑。
   可先运行 `java -jar aqe.jar examples dex-call` 获取完整准备流程及 Helper 文件。
@@ -9,6 +9,8 @@
 - 自行准备 config.json、new.txt。它们相对于 patch.json 所在目录。
 - 0x7f010000 只是示例资源 ID；核实它确实是简单字符串且有 en 配置，不需要时移除该操作。
 - classes.dex 必须存在。AQE 不会自动新增 DEX 或拆分超限 DEX。
+- com.example.Main 会在替换之后改名为 com.example.Home；Home 必须未定义且未被静态引用。
+  只更新已知静态引用，支持范围见 `--help-all`；不需要改名时移除该操作。
 
 ```sh
 java -jar aqe.jar examples batch --file patch.json > patch.json

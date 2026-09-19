@@ -6,12 +6,34 @@ import com.android.tools.smali.dexlib2.iface.ClassDef;
 import com.android.zipflinger.ZipArchive;
 import com.reandroid.arsc.chunk.TableBlock;
 import com.reandroid.arsc.chunk.xml.AndroidManifestBlock;
+import com.reandroid.arsc.chunk.xml.ResXmlDocument;
+import com.reandroid.arsc.value.ValueType;
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
+import java.util.function.Consumer;
 
 /** A patch is an ordered in-memory overlay, published only after every operation succeeds. */
 final class BatchEditor {
+    static List<ClassReferences.Hit> references(Path input, String name) throws IOException {
+        Session session = new Session(input);
+        List<ClassReferences.Hit> hits = new ArrayList<>();
+        session.scan(Set.of(ClassRenamer.descriptor(name)), hits::add);
+        return hits;
+    }
+
+    static Map<String, Object> previewRename(Path input, String from, String to) throws Exception {
+        Session session = new Session(input);
+        List<ClassReferences.Hit> hits = session.rename(PatchPlan.renameClass(from, to).operations().get(0));
+        int rebuilt = session.finish(); // Includes DEX serialization/limits, without publishing an APK.
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("from", ClassRenamer.descriptor(from));
+        result.put("to", ClassRenamer.descriptor(to));
+        result.put("references", hits);
+        result.put("changedEntries", new ArrayList<>(session.replacements.keySet()));
+        result.put("rebuiltDex", rebuilt);
+        return result;
+    }
     @FunctionalInterface interface Signer { void sign(Path unsigned, Path output) throws Exception; }
     static final class Result {
         private final int operations, writtenEntries, deletedEntries, rebuiltDex;
@@ -72,6 +94,15 @@ final class BatchEditor {
         }
     }
 
+    private static final class XmlState {
+        final ResXmlDocument document;
+        boolean dirty;
+        XmlState(byte[] bytes) throws IOException {
+            document = new ResXmlDocument();
+            document.readBytes(new ByteArrayInputStream(bytes));
+        }
+    }
+
     private static final class Session {
         final Path input;
         final Set<String> originalEntries;
@@ -81,6 +112,8 @@ final class BatchEditor {
         final Map<String, DexState> dexStates = new LinkedHashMap<>();
         // Classes whose last explicit deletion still requires a reference check.
         final Map<String, String> guardedDeletions = new LinkedHashMap<>();
+        final Map<String, String> renamedClasses = new LinkedHashMap<>();
+        final Map<String, XmlState> xmlStates = new LinkedHashMap<>();
         Map<String, String> owners;
         AndroidManifestBlock manifest;
         TableBlock resources;
@@ -106,10 +139,98 @@ final class BatchEditor {
             return manifest;
         }
 
+        TableBlock resources() throws IOException {
+            if (resources == null && entries.contains("resources.arsc"))
+                resources = TableBlock.load(new ByteArrayInputStream(read("resources.arsc")));
+            return resources;
+        }
+
+        Map<String, String> xmlEntries() throws IOException {
+            Map<String, String> paths = new LinkedHashMap<>();
+            for (String name : entries) {
+                if (name.matches("res/(layout|navigation|xml)(-[^/]+)?/[^/]+\\.xml"))
+                    paths.put(name, name.substring(4, name.indexOf('/', 4)).split("-", 2)[0]);
+            }
+            // Table paths also cover renamed/obfuscated ZIP entries and every configuration.
+            TableBlock table = resources();
+            if (table != null) {
+                var all = table.getResources();
+                while (all.hasNext()) {
+                    var resource = all.next();
+                    String role = resource.getType();
+                    if (!Set.of("layout", "navigation", "xml").contains(role)) continue;
+                    for (var value : resource) {
+                        if (value.isComplex() || value.getValueType() != ValueType.STRING) continue;
+                        String path = value.getValueAsString();
+                        if (!entries.contains(path)) throw new IOException("Resource XML entry not found: " + path);
+                        String previous = paths.putIfAbsent(path, role);
+                        if (previous != null && !previous.equals(role))
+                            throw new IOException("Conflicting resource XML types for " + path);
+                    }
+                }
+            }
+            return paths;
+        }
+
+        void scanXml(Set<String> targets, Map<String, String> mapping, Consumer<ClassReferences.Hit> sink) throws IOException {
+            String packageName = manifest().getPackageName();
+            TableBlock table = resources();
+            manifestDirty |= new XmlClassReferences("AndroidManifest.xml", "manifest", packageName,
+                    table, targets, mapping, sink).scan(manifest());
+            for (var item : xmlEntries().entrySet()) {
+                XmlState state = xmlStates.get(item.getKey());
+                if (state == null) {
+                    state = new XmlState(read(item.getKey()));
+                    xmlStates.put(item.getKey(), state);
+                }
+                state.dirty |= new XmlClassReferences(item.getKey(), item.getValue(), packageName,
+                        table, targets, mapping, sink).scan(state.document);
+            }
+        }
+
+        void scan(Set<String> targets, Consumer<ClassReferences.Hit> sink) throws IOException {
+            indexClasses();
+            ClassReferences scanner = new ClassReferences(targets, sink);
+            for (var item : dexStates.entrySet()) scanner.scanDex(item.getKey(), item.getValue().classes.values());
+            scanXml(targets, Map.of(), sink);
+        }
+
+        List<ClassReferences.Hit> rename(PatchPlan.Operation op) throws IOException {
+            String from = ClassRenamer.descriptor(op.text("from")), to = ClassRenamer.descriptor(op.text("to"));
+            ClassRenamer.validate(from, to);
+            indexClasses();
+            if (!owners.containsKey(from)) throw new IOException("Class not found: " + from);
+            if (owners.containsKey(to)) throw new IOException("Class already exists: " + to);
+            List<ClassReferences.Hit> hits = new ArrayList<>();
+            scan(Set.of(from, to), hits::add);
+            for (ClassReferences.Hit hit : hits) {
+                if (hit.target.equals(to)) throw new IOException("Destination class already referenced: " + hit.location);
+            }
+            Set<String> affectedDex = new LinkedHashSet<>();
+            for (ClassReferences.Hit hit : hits) if (hit.owner != null) affectedDex.add(hit.entry);
+            ClassRenamer renamer = new ClassRenamer(from, to);
+            for (String name : affectedDex) {
+                DexState state = dexStates.get(name);
+                Map<String, ClassDef> rewritten = new LinkedHashMap<>();
+                for (ClassDef cls : state.classes.values()) {
+                    ClassDef changed = renamer.rewrite(cls);
+                    rewritten.put(changed.getType(), changed);
+                }
+                state.classes.clear();
+                state.classes.putAll(rewritten);
+                state.lastEdit = op.context();
+            }
+            owners = null;
+            scanXml(Set.of(from), Map.of(from, to), ignored -> {});
+            renamedClasses.put(from, op.context());
+            return hits;
+        }
+
         void execute(PatchPlan.Operation op) throws Exception {
             switch (op.kind()) {
                 case "file.add": case "file.replace": case "file.delete": file(op); break;
                 case "dex.add": case "dex.replace": case "dex.delete": dex(op); break;
+                case "dex.rename": rename(op); break;
                 case "manifest.set": {
                     ResourceEditor.setManifest(manifest(), op.optionalText("label", null),
                             op.optionalText("versionName", null), op.integer("versionCode"));
@@ -148,6 +269,7 @@ final class BatchEditor {
             // A later whole-file operation supersedes earlier structured edits to that file.
             if (name.equals("AndroidManifest.xml")) { manifest = null; manifestDirty = false; }
             if (name.equals("resources.arsc")) { resources = null; resourcesDirty = false; }
+            xmlStates.remove(name);
             if (ApkArchive.DEX_NAME.matcher(name).matches()) {
                 dexStates.remove(name);
                 owners = null;
@@ -223,9 +345,20 @@ final class BatchEditor {
                 absent.keySet().removeAll(owners.keySet());
                 if (!absent.isEmpty()) {
                     ClassDeletionGuard guard = new ClassDeletionGuard(absent);
-                    for (var item : dexStates.entrySet()) guard.scanDex(item.getKey(), item.getValue().classes.values());
-                    guard.scanManifest(manifest());
+                    scan(absent.keySet(), guard::accept);
                     guard.requireNoReferences();
+                }
+            }
+            if (!renamedClasses.isEmpty()) {
+                indexClasses();
+                Set<String> absent = new LinkedHashSet<>(renamedClasses.keySet());
+                absent.removeAll(owners.keySet());
+                if (!absent.isEmpty()) {
+                    List<ClassReferences.Hit> remaining = new ArrayList<>();
+                    scan(absent, hit -> { if (remaining.isEmpty()) remaining.add(hit); });
+                    if (!remaining.isEmpty()) throw new IOException("References to renamed classes remain: "
+                            + remaining.get(0).location + " -> " + remaining.get(0).target
+                            + " (" + renamedClasses.get(remaining.get(0).target) + "); no output published");
                 }
             }
             int rebuilt = 0;
@@ -241,12 +374,18 @@ final class BatchEditor {
                 }
             }
             if (manifestDirty) {
-                manifest.refreshFull();
+                // Refresh sizes/indices without normalizing namespaces or dropping unrelated attributes.
+                manifest.refresh();
                 replacements.put("AndroidManifest.xml", ApkArchive.Replacement.bytes(manifest.getBytes()));
             }
             if (resourcesDirty) {
                 resources.refresh();
                 replacements.put("resources.arsc", ApkArchive.Replacement.bytes(resources.getBytes()));
+            }
+            for (var item : xmlStates.entrySet()) {
+                if (!item.getValue().dirty) continue;
+                item.getValue().document.refresh();
+                replacements.put(item.getKey(), ApkArchive.Replacement.bytes(item.getValue().document.getBytes()));
             }
             return rebuilt;
         }

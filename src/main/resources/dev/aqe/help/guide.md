@@ -10,6 +10,8 @@ Gradle、外部 JAR 或联网。JRE 不包含在 JAR 中。以下命令中的 aq
 | --- | --- |
 | 查看包名、版本、minSdk、DEX 文件名 | `java -jar aqe.jar info app.apk` |
 | 查看全部类及其所在 DEX | `java -jar aqe.jar dex list app.apk` |
+| 查询类定义及静态引用 | `java -jar aqe.jar dex refs app.apk com.example.Main --json` |
+| 预览同包类重命名及引用修改 | `java -jar aqe.jar dex rename app.apk com.example.Main com.example.Home --dry-run --json` |
 | 导出某个类，再修改其中的方法 | `java -jar aqe.jar dex export app.apk com.example.Main -o Main.smali` |
 | 替换或新增 assets / res / so 文件 | `java -jar aqe.jar replace app.apk assets/config.json=config.json -o edited.apk` |
 | 一次完成多种修改、新增、删除，可选签名 | `java -jar aqe.jar apply app.apk --patch patch.json -o edited.apk` |
@@ -128,10 +130,11 @@ AQE 无法恢复原应用私钥。若安装失败，不要自动卸载原应用�
 | dex.add | inputs:非空路径数组 | dex:"classes.dex"；api:当前 APK minSdk；libraries:[] |
 | dex.replace | inputs:非空路径数组 | api:当前 APK minSdk；libraries:[] |
 | dex.delete | classes:非空类名数组 | allowReferenced:false；全部类必须存在；默认最终仍有直接引用则整批失败 |
+| dex.rename | from:旧类名，to:新类名 | 无；同包改名，旧类必须存在，新类必须不存在且未被静态引用 |
 | manifest.set | label / versionName / versionCode 至少一个 | label、versionName 是字符串；versionCode 是正整数 |
 | resource.set-string | id:字符串，如 "0x7f010000"；value:字符串 | config:""（默认配置），例如 "en" 或 "-en" |
 
-完整的八种操作示例：`java -jar aqe.jar examples batch`。
+完整的九种操作示例：`java -jar aqe.jar examples batch`。
 
 文件路径规则：`path` 是 APK 内部路径，使用 `/`，区分大小写，不是本地路径。
 JSON 中的 source、inputs、libraries 相对于 JSON 所在目录；支持绝对路径。
@@ -143,6 +146,77 @@ Windows JSON 路径优先用 `/`；使用反斜杠时必须按 JSON 规则转义
 每个受影响 DEX 最后只序列化一次；其余条目保留原压缩数据。
 任意操作、写回或签名失败，都不发布半成品，也不覆盖输入或已有输出。
 
+## 查询引用与类重命名
+
+无需导出 Smali，也不需要提供新类代码：直接改类描述符，并同步修改支持的静态引用。
+第一版只允许同一包内改名，避免移动包后破坏 package-private 访问。不会自动改名内部类；
+`Outer` 和 `Outer$Inner` 是两个独立类，需分别指定。
+
+```sh
+java -jar aqe.jar dex refs app.apk com.example.Main --json
+java -jar aqe.jar dex rename app.apk com.example.Main com.example.Home --dry-run --json
+java -jar aqe.jar dex rename app.apk com.example.Main com.example.Home -o renamed.apk
+java -jar aqe.jar dex refs renamed.apk com.example.Main --json
+java -jar aqe.jar dex refs renamed.apk com.example.Home --json
+```
+
+`refs --json` 输出数组，每条包含 `target`（描述符）、`entry`（APK 路径）、
+`owner`（DEX 所属类；XML 为 null）、`location`（可读位置）、`definition`（是否为类定义）。
+可以查询不存在的类，便于查找悬空引用；无匹配时输出 `[]`，退出码为 0。
+同一 XML 属性的不同资源配置可能分别产生记录。
+
+`rename --dry-run --json` 输出对象：`from`、`to`、`references`（改名前的位置）、
+`changedEntries` 和 `rebuiltDex`。预览也执行完整校验及内存序列化，不输出 APK；
+不能同时传 `-o` 或 `--force`。`rename --json` 仅配合 `--dry-run` 使用。
+实际输出需要 `-o`，输出未签名；类仍留在原 DEX，所有其他 DEX 中的引用也会更新。
+若目标类名已存在或已被静态引用、旧类缺失、跨包移动、剩余旧引用或写回失败，整项失败。
+
+批量操作与新增、替换、删除按顺序组合：
+
+```json
+{
+  "version": 1,
+  "operations": [
+    {"op": "dex.rename", "from": "com.example.Main", "to": "com.example.Home"},
+    {"op": "dex.add", "inputs": ["Helper.smali"]},
+    {"op": "dex.replace", "inputs": ["Home.smali"]},
+    {"op": "dex.delete", "classes": ["com.example.Legacy"]}
+  ]
+}
+```
+
+Home.smali 必须使用新描述符 `Lcom/example/Home;`，并保留已有类的完整内容。
+后续操作若重新引入已改名的旧类引用，最终校验会拒绝输出；显式重新添加旧类定义后，
+其引用则允许存在。连续 A→B→C 可用两条 `dex.rename`；互换两个已有类名需通过临时空闲类名。
+单独可复制模板：`java -jar aqe.jar examples class-rename`。
+
+### 静态扫描与 XML 支持范围
+
+查询、重命名、默认删除保护共用以下规则：
+
+- DEX：类定义、继承/接口、数组元素、字段/方法参数和返回类型、注解及嵌套编码值、
+  指令的类型/字段/方法引用、method handle/type、call site、catch、debug local 类型。
+- Manifest：application 的 name、backupAgent、manageSpaceActivity、appComponentFactory、
+  zygotePreloadName；activity 的 name、parentActivityName；activity-alias 的 targetActivity、
+  parentActivityName；service/receiver/provider/instrumentation 的 name，均限 Android 命名空间。
+  `.Main`、`Main` 按 Manifest package 展开，写回完整类名。alias 的 name 是标识符，保留不变。
+- layout：带点的自定义 View 标签；view/fragment/FragmentContainerView 的无命名空间 class；
+  fragment/FragmentContainerView 的 android:name；app:layout_behavior、app:layoutManager。
+  后两项的 `.Class` 按 APK 包名展开，短名称不会误当成 APK 包内类。
+- navigation：fragment/dialog/activity 的 android:name，以及 argument 的 app:argType（含 `[]`）。
+- xml：带点的自定义 Preference 标签、android:fragment / app:fragment、intent 的 android:targetClass。
+- 遍历资源 XML 的所有配置，借助 resources.arsc 识别改过文件名/路径的布局等资源。
+  app 命名空间指 res-auto 或应用的 res 命名空间。
+
+上述属性通过 `@string` 间接提供类名时，会递归检查资源别名和所有配置。若受影响属性的
+各配置最终都是同一类名，仅将该属性改为完整新类名，不修改共享字符串资源及其他引用它的属性。
+若不同配置无法合并为一个值，则拒绝改名；缺失、循环、复杂值和主题属性 `?attr` 等
+无法静态确定的已知类名槽位也会报错，查询和默认删除检查同样不会跳过这些位置。
+
+范围之外：反射字符串、JNI、动态代码、DEX 泛型 Signature/Kotlin/InnerClass 等字符串元数据、
+任意普通字符串、Manifest meta-data 自定义约定、自定义 XML 属性/加载器、style/theme 继承中的类值。
+assets 和 res/raw 内容不解析。不会全局替换字符串，也不提供完整运行时链接正确性保证。
+
 ## 安全删除类
 
 ```sh
@@ -151,7 +225,7 @@ java -jar aqe.jar dex delete app.apk com.example.Legacy 'Lcom/example/Unused;' -
 
 `dex delete` 和 apply 的 `dex.delete` 默认都检查整批操作的最终状态。扫描所有 DEX 中保留的类，
 检查继承/接口、字段/方法签名、数组元素类型、指令引用、注解及其值、异常处理类型、
-调试局部变量类型、method handle / method type / call site；同时检查 Manifest 中字面量组件类名。
+调试局部变量类型、method handle / method type / call site；同时按上节规则检查 Manifest 和资源 XML。
 即使引用只存在于未执行的方法中，也会拒绝删除。
 
 有引用时退出码为 1，错误包含被删类、删除操作序号、引用所在 DEX/类/方法/指令位置，最多列 30 条。
@@ -181,8 +255,8 @@ patch.json（以下两项顺序互换也可以）：
 Manifest 组件声明需另行准备修改后的二进制 Manifest，通过 file.replace 提交；
 manifest.set 目前不编辑组件声明。
 
-检查不能保证任意运行时链接都成功：反射字符串、JNI、动态加载、布局 XML 的自定义 View、
-资源字符串等不在范围内，也不验证替换/重新添加类后的方法和字段兼容性。
+检查不能保证任意运行时链接都成功：反射字符串、JNI、动态加载及上述范围外约定不在检查内，
+也不验证替换/重新添加类后的方法和字段兼容性。
 单独用原始文件操作替换/删除整个 DEX 而不使用 dex.delete，不启用此保护。
 
 ### 批量列表与显式豁免
@@ -227,13 +301,14 @@ java -jar aqe.jar dex delete app.apk --classes-file removal.txt --allow-referenc
 - --lib / libraries 是 D8 的库声明，不会打进 APK，不会自动补齐依赖。
 - 类名可写 `com.example.Main` 或 `Lcom/example/Main;`；shell 中描述符需引号保护分号。
 - 只编辑标准 DEX 035–040，拒绝 041+ 容器。新增类写入指定的现有 DEX，不自动创建或拆分。
-- 不自动修复引用或 Manifest 组件声明。删除类使用 `dex delete` 或 apply 的 dex.delete，
+- `dex rename` 自动修改上述静态引用；普通 dex.replace/add 不自动修复引用。删除类使用 `dex delete` 或 apply 的 dex.delete，
   默认有剩余直接引用会失败；显式豁免只影响指定类。删空的 DEX 保留，不自动重排 DEX 文件名。资源 ID 引用不检查。
 - file 操作复制原始数据：文本布局 XML、原始 nine-patch 不会自动编译；新增 res 文件也不会创建资源 ID。
 - 字符串编辑只支持已有资源 ID 的已有简单字符串配置，不支持新增 ID、复杂样式或复数字符串。
 - 修改输出会移除旧签名。签名创建 v2/v3，并在 minSdk < 24 时启用 v1；不生成 v4 idsig。
 - ZIP 中未压缩文件按 4 字节对齐，未压缩 so 按 16 KiB 对齐；不转换 ELF 段布局或 ABI。
-- 没有 dry-run、JSON 状态输出、自动 Java 反编译、自动插桩、split APK 集合处理或设备部署命令。
+- dry-run 限 dex rename，JSON 输出限 dex refs 与重命名预览。没有整批 apply 预览、自动 Java 反编译、
+  自动插桩、split APK 集合处理或设备部署命令。
 
 ## 失败诊断与 agent 调用约定
 
@@ -252,6 +327,9 @@ help / examples 输出到 stdout；操作失败写 stderr；Smali/D8 的底层�
 | Entry/Class not found | 核实 APK、条目/类名及前序删除；缺失类需要 dex.add |
 | Entry/Class already exists | 核实目标；已有类用 dex.replace，不要重复新增 |
 | Refusing class deletion | 按错误位置修复/删除调用方或 Manifest 组件声明，在同一批补丁提交；--force 不能绕过 |
+| Cross-package rename / Destination class already referenced | 保持原包名，并选择未定义且未被引用的新类名 |
+| References to renamed classes remain | 检查改名后的 dex.replace/file.replace 等操作是否带回旧引用 |
+| Ambiguous class resource / Cannot resolve XML class value | 按位置检查各资源配置或主题值；先提供可静态确定的二进制 XML 再重试 |
 | No classes found / Smali assembly failed | 检查输入类型、Smali 语法、目录是否包含正确文件 |
 | Target DEX must exist / DEX reference limit exceeded | 从 info 输出选择已有且容量足够的 DEX；不会自动拆分 |
 | Expected one resource / not a simple string | 核实资源 ID、准确 config 和资源类型，不能猜 ID |

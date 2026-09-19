@@ -7,7 +7,7 @@ import android.widget.TextView;
 import org.json.JSONObject;
 import java.io.*;
 
-/** The activity stays unchanged while AQE patches its callees, resources and native library. */
+/** Exercises ordinary edits, then static renaming of the activity, a callee and an XML View. */
 public class MainActivity extends Activity {
     private final JSONObject checks = new JSONObject();
     private final JSONObject values = new JSONObject();
@@ -16,12 +16,17 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         String stage = getIntent().getStringExtra("stage");
-        boolean edited = "patched".equals(stage);
+        boolean renamed = "renamed".equals(stage);
+        boolean edited = "patched".equals(stage) || renamed;
         JSONObject report = new JSONObject();
         try {
             report.put("stage", stage);
             check("dex_call", PatchTarget.message(), edited ? "helper-called" : "original");
             check("secondary_dex", OtherDex.value(), 17);
+            int layout = getResources().getIdentifier("probe_layout", "layout", getPackageName());
+            android.view.View inflated = getLayoutInflater().inflate(layout, null);
+            check("layout_class", inflated.getClass().getName(), getPackageName() + (renamed ? ".RenamedView" : ".ProbeView"));
+            check("activity_class", getClass().getName(), getPackageName() + (renamed ? ".RenamedActivity" : ".MainActivity"));
             check("added_class", hasClass("Added"), edited);
             check("deleted_class", hasClass("Legacy"), !edited);
             check("asset_replace", asset("config.txt"), edited ? "new-config" : "old-config");

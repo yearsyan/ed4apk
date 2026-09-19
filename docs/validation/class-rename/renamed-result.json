@@ -1,0 +1,40 @@
+{
+  "stage": "renamed",
+  "passed": true,
+  "checks": {
+    "dex_call": true,
+    "secondary_dex": true,
+    "layout_class": true,
+    "activity_class": true,
+    "added_class": true,
+    "deleted_class": true,
+    "asset_replace": true,
+    "asset_add": true,
+    "added_asset_content": true,
+    "asset_delete": true,
+    "unchanged_asset": true,
+    "string_resource": true,
+    "resource_file": true,
+    "manifest_label": true,
+    "manifest_version": true,
+    "native_library": true
+  },
+  "values": {
+    "dex_call": "helper-called",
+    "secondary_dex": 17,
+    "layout_class": "dev.aqe.smoketest.RenamedView",
+    "activity_class": "dev.aqe.smoketest.RenamedActivity",
+    "added_class": true,
+    "deleted_class": false,
+    "asset_replace": "new-config",
+    "asset_add": true,
+    "added_asset_content": "new-asset",
+    "asset_delete": false,
+    "unchanged_asset": "keep",
+    "string_resource": "New resource",
+    "resource_file": "new-raw",
+    "manifest_label": "AQE Edited",
+    "manifest_version": 2,
+    "native_library": 42
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "operations": [
+    {
+      "op": "dex.rename",
+      "from": "dev.aqe.smoketest.MainActivity",
+      "to": "dev.aqe.smoketest.RenamedActivity"
+    },
+    {
+      "op": "dex.rename",
+      "from": "dev.aqe.smoketest.OtherDex",
+      "to": "dev.aqe.smoketest.RenamedOtherDex"
+    },
+    {
+      "op": "dex.rename",
+      "from": "dev.aqe.smoketest.ProbeView",
+      "to": "dev.aqe.smoketest.RenamedView"
+    }
+  ]
+}

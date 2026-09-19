@@ -15,6 +15,12 @@ final class PatchPlan {
     private PatchPlan(List<Operation> operations) { this.operations = List.copyOf(operations); }
     List<Operation> operations() { return operations; }
 
+    static PatchPlan renameClass(String from, String to) {
+        var value = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
+        value.put("op", "dex.rename").put("from", from).put("to", to);
+        return new PatchPlan(List.of(new Operation(value, Path.of(".").toAbsolutePath(), 1, "dex.rename")));
+    }
+
     static PatchPlan deleteClasses(List<String> classes) {
         return deleteClasses(classes, false);
     }
@@ -51,6 +57,7 @@ final class PatchPlan {
                     case "dex.add": allowed = Set.of("op", "inputs", "dex", "api", "libraries"); break;
                     case "dex.replace": allowed = Set.of("op", "inputs", "api", "libraries"); break;
                     case "dex.delete": allowed = Set.of("op", "classes", "allowReferenced"); break;
+                    case "dex.rename": allowed = Set.of("op", "from", "to"); break;
                     case "manifest.set": allowed = Set.of("op", "label", "versionName", "versionCode"); break;
                     case "resource.set-string": allowed = Set.of("op", "id", "config", "value"); break;
                     default: throw new IOException("Unknown operation: " + kind);

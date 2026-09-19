@@ -1,0 +1,7 @@
+Starting: Intent { cmp=dev.aqe.smoketest/.RenamedActivity (has extras) }
+Status: ok
+LaunchState: COLD
+Activity: dev.aqe.smoketest/.RenamedActivity
+TotalTime: 451
+WaitTime: 452
+Complete

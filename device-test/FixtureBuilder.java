@@ -5,6 +5,8 @@ import com.android.zipflinger.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.reandroid.arsc.chunk.TableBlock;
 import com.reandroid.arsc.chunk.xml.AndroidManifestBlock;
+import com.reandroid.arsc.chunk.xml.ResXmlDocument;
+import com.reandroid.arsc.value.ValueType;
 import javax.tools.ToolProvider;
 import java.nio.file.*;
 import java.util.*;
@@ -14,7 +16,7 @@ public final class FixtureBuilder {
     public static void main(String[] args) throws Exception {
         Path source = Path.of(args[0]), androidJar = Path.of(args[1]), output = Path.of(args[2]);
         Path base = Files.createDirectory(output.resolve("base-classes"));
-        compile(androidJar, base, List.of(source.resolve("app/MainActivity.java")));
+        compile(androidJar, base, List.of(source.resolve("app/MainActivity.java"), source.resolve("app/ProbeView.java")));
         List<Path> classes;
         try (var paths = Files.walk(base)) {
             classes = paths.filter(p -> p.toString().endsWith(".class")).toList();
@@ -39,10 +41,19 @@ public final class FixtureBuilder {
         var title = pkg.getOrCreate("", "string", "title");
         title.setValueAsString("Original resource");
         pkg.getOrCreate("", "raw", "probe").setValueAsString("res/raw/probe.txt");
+        pkg.getOrCreate("", "layout", "probe_layout").setValueAsString("res/layout/probe.xml");
         table.refresh();
+        ResXmlDocument layout = new ResXmlDocument();
+        var view = layout.newElement("dev.aqe.smoketest.ProbeView");
+        var width = view.getOrCreateAndroidAttribute("layout_width", 0x010100f4);
+        width.setValueType(ValueType.DEC); width.setData(-1);
+        var height = view.getOrCreateAndroidAttribute("layout_height", 0x010100f5);
+        height.setValueType(ValueType.DEC); height.setData(-2);
+        layout.refresh();
         try (ZipArchive zip = new ZipArchive(output.resolve("base-unsigned.apk"))) {
             zip.add(new BytesSource(manifest.getBytes(), "AndroidManifest.xml", 1));
             zip.add(new BytesSource(table.getBytes(), "resources.arsc", 0));
+            zip.add(new BytesSource(layout.getBytes(), "res/layout/probe.xml", 1));
             zip.add(new BytesSource(DexEditor.writeClasses(imported.values(), Opcodes.forApi(21)), "classes.dex", 1));
             zip.add(new BytesSource(DexEditor.writeClasses(List.of(secondary), Opcodes.forApi(21)), "classes2.dex", 1));
             zip.add(new BytesSource("old-config".getBytes(), "assets/config.txt", 1));

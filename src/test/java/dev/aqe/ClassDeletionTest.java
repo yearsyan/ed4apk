@@ -219,6 +219,21 @@ class ClassDeletionTest {
         assertFalse(Files.exists(temporary.resolve("blocked.apk")));
     }
 
+    @ParameterizedTest(name = "renames {0}") @MethodSource("referenceKinds")
+    void renamesEveryDirectReferenceKindAcrossDex(String name, String caller) throws Exception {
+        Path apk = fixture(caller), output = temporary.resolve("renamed.apk");
+        var before = BatchEditor.references(apk, "sample.Target");
+        assertTrue(before.stream().anyMatch(hit -> hit.entry.equals("classes2.dex")), name);
+        var result = BatchEditor.apply(apk, PatchPlan.renameClass("sample.Target", "sample.Renamed"), output, false, null);
+        assertEquals(2, result.rebuiltDex());
+        assertTrue(BatchEditor.references(output, "sample.Target").isEmpty(), name);
+        assertEquals(before.size(), BatchEditor.references(output, "sample.Renamed").size(), name);
+        String smali = DexEditor.exportClass(output, "sample.Caller");
+        assertFalse(smali.contains("Lsample/Target;"), smali);
+        assertTrue(smali.contains("Lsample/Renamed;"), smali);
+        assertTrue(DexEditor.listClasses(output).contains("classes.dex | Lsample/Renamed;"));
+    }
+
     @Test void blocksLiteralManifestClassNamesButNotAnActivityAliasName() throws Exception {
         for (String name : List.of("sample.Target", ".Target", "Target")) {
             Path apk = fixture(TARGET, CLEAN, m -> m.getOrCreateMainActivity(name));
@@ -258,6 +273,9 @@ class ClassDeletionTest {
             assertTrue(error.getMessage().contains("Refusing class deletion"), error.getMessage());
             assertTrue(error.getMessage().contains("invoke-custom"), error.getMessage());
             assertFalse(Files.exists(output));
+            BatchEditor.apply(apk, PatchPlan.renameClass("sample.Target", "sample.Renamed"), output, false, null);
+            assertTrue(BatchEditor.references(output, "sample.Target").isEmpty());
+            assertTrue(DexEditor.exportClass(output, "sample.Caller").contains("Lsample/Renamed;"));
         }
     }
 

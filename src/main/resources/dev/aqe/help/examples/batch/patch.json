@@ -4,6 +4,7 @@
     {"op": "dex.add", "inputs": ["Helper.smali"], "dex": "classes.dex"},
     {"op": "dex.replace", "inputs": ["Main.smali"]},
     {"op": "dex.delete", "classes": ["com.example.Legacy"]},
+    {"op": "dex.rename", "from": "com.example.Main", "to": "com.example.Home"},
     {"op": "file.replace", "path": "assets/config.json", "source": "config.json"},
     {"op": "file.add", "path": "assets/new.txt", "source": "new.txt"},
     {"op": "file.delete", "path": "assets/obsolete.txt"},
