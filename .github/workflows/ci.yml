@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build and test (Java 11 runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 11 for runtime tests
+        id: java11
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - name: Set up JDK 21 for Gradle and compilation
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle and validate the wrapper
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      # `build` runs all tests plus the Java 11 bytecode check, and fails the job on any error.
+      - name: Build and run all tests
+        env:
+          JAVA11_HOME: ${{ steps.java11.outputs.path }}
+        run: ./gradlew --no-daemon --console=plain build -Ped4apkTestJava="$JAVA11_HOME/bin/java"
+
+      - name: Upload test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ci-test-reports-${{ github.sha }}
+          path: |
+            build/reports/tests/test/
+            build/test-results/test/*.xml
+          retention-days: 14
+          if-no-files-found: warn
