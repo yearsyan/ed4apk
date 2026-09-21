@@ -126,6 +126,7 @@ public final class Main implements Runnable {
                     "dex.add/replace optionally accept api (integer; default APK minSdk) and libraries (JAR path array).",
                     "dex.add requires an existing destination DEX; default classes.dex. No automatic DEX splitting.",
                     "resource.set-string requires an existing simple string/config; omitted config means the default config.",
+                    "manifest.add/update/replace/delete edit nodes and component declarations; see examples manifest and --help-all.",
                     "Input paths inside JSON are relative to the JSON file. CLI paths are relative to the working directory.",
                     "Operations run in order: add requires absence; replace/delete require existence.",
                     "Whole-file replacement supersedes earlier edits to that file. Each changed DEX is written once.",
@@ -134,7 +135,7 @@ public final class Main implements Runnable {
                     "Fix/remove callers in the same patch. The final state is checked, so delete/repair order does not matter. --force cannot bypass this check.",
                     "dex.delete accepts {\"allowReferenced\":true} to exempt only classes deleted by that operation; other deletions keep their checks.",
                     "If a class is deleted, re-added and deleted again, its last deletion's setting applies. Missing classes may fail at runtime (see dex delete --help).",
-                    "Reflection/JNI/dynamic loading, XML/resource class strings and member compatibility are outside the check. Raw DEX file operations alone do not enable it.",
+                    "Reflection/JNI/dynamic loading, unknown XML class slots and member compatibility are outside the check. Raw DEX file operations alone do not enable it.",
                     "Calls to added classes and resource references must be updated by your patch.",
                     "Without --ks/--alias the result is unsigned. Signing password defaults to env ed4apk_KS_PASS.",
                     "Unknown fields/operations, duplicate JSON keys and an empty operations array are rejected.",
@@ -226,7 +227,7 @@ public final class Main implements Runnable {
         }
     }
 
-    private static void printJson(Object value) throws IOException {
+    static void printJson(Object value) throws IOException {
         System.out.println(new com.fasterxml.jackson.databind.ObjectMapper().writerWithDefaultPrettyPrinter().writeValueAsString(value));
     }
 
@@ -345,7 +346,9 @@ public final class Main implements Runnable {
     }
 
     @Command(name = "manifest", mixinStandardHelpOptions = true,
-            description = "Edit binary AndroidManifest.xml", subcommands = ManifestSet.class)
+            description = "Inspect and edit binary AndroidManifest.xml and component declarations",
+            subcommands = {ManifestSet.class, ManifestCommands.Show.class, ManifestCommands.Add.class,
+                    ManifestCommands.Update.class, ManifestCommands.Replace.class, ManifestCommands.Delete.class})
     static class Manifest {}
 
     @Command(name = "set", mixinStandardHelpOptions = true, description = "Set application label or version",

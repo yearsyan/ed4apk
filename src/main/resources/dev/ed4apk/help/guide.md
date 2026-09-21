@@ -9,6 +9,8 @@ Gradle、外部 JAR 或联网。JRE 不包含在 JAR 中。以下命令中的 ed
 | 目标 | 命令 |
 | --- | --- |
 | 查看包名、版本、minSdk、DEX 文件名 | `java -jar ed4apk.jar info app.apk` |
+| 查看 Manifest / 四大组件 | `java -jar ed4apk.jar manifest show app.apk` |
+| 精细修改组件属性 | `java -jar ed4apk.jar manifest update app.apk --component activity --name .Main --attribute android:exported=false -o edited.apk` |
 | 查看全部类及其所在 DEX | `java -jar ed4apk.jar dex list app.apk` |
 | 查询类定义及静态引用 | `java -jar ed4apk.jar dex refs app.apk com.example.Main --json` |
 | 预览同包类重命名及引用修改 | `java -jar ed4apk.jar dex rename app.apk com.example.Main com.example.Home --dry-run --json` |
@@ -34,6 +36,103 @@ java -jar ed4apk.jar info edited.apk
 
 edited.apk 是未签名输出。已有输出不会被覆盖；需要重新生成时加 `--force`。
 label 是应用名称的字面量；保留多语言名称需修改对应资源字符串。
+
+## Manifest 与四大组件的精细编辑
+
+`manifest show/add/update/replace/delete` 直接读取和修改 APK 内的二进制 Manifest，
+支持 activity、service、receiver、provider 和 activity-alias。无需解包重编译整个 APK。
+`manifest set` 仍用于应用名称、版本名和版本号。
+
+```sh
+# 查看整棵树或组件；输出 JSON 数组，包含明确的二进制属性类型
+java -jar ed4apk.jar manifest show app.apk
+java -jar ed4apk.jar manifest show app.apk --component activity --name .MainActivity
+java -jar ed4apk.jar manifest show app.apk --path /manifest/application/provider
+
+# 修改指定属性、删除指定属性，其余属性及子节点保持原状
+java -jar ed4apk.jar manifest update app.apk --component activity --name .MainActivity --attribute android:exported=true --attribute android:launchMode=singleTask -o edited.apk
+java -jar ed4apk.jar manifest update app.apk --component service --name .SyncService --remove-attribute android:permission -o edited.apk
+
+# 新增 / 完整替换 / 删除组件声明
+java -jar ed4apk.jar examples manifest --file activity.json > activity.json
+java -jar ed4apk.jar manifest add app.apk --node activity.json -o edited.apk
+java -jar ed4apk.jar manifest replace app.apk --component activity --name .MainActivity --node activity.json -o edited.apk
+java -jar ed4apk.jar manifest delete app.apk --component receiver --name .LegacyReceiver -o edited.apk
+```
+
+所有名字和属性须先通过 show 核实。`--component` 与 `--name` 成对使用，匹配 application 的直接子节点；
+`.Main`、`Main`、`包名.Main` 按 Manifest package 归一化匹配字面量组件名。
+也可使用绝对 XPath `--path`（与组件选择器互斥）。XPath 使用原始属性值，不展开相对类名；
+`android` 命名空间前缀预定义，根元素上已有的其他前缀也可使用。
+可用 `[@android:name='...']`、`[1]` 等谓词定位具体节点，包括 intent-filter、meta-data、action、category、data。
+show 允许零个或多个结果；修改、替换、删除和新增的父节点都必须恰好命中一个元素。
+要删除多个节点，请逐项操作；移除不存在的属性也会报错，避免静默忽略拼写错误。
+
+`--node` 是一个节点对象的 JSON 文件，格式如下。`tag` 必填，其他字段可省略。
+CLI add 的 `--parent` 默认 `/manifest/application`；JSON manifest.add 的 parent 必填。
+权限节点可添加到 `/manifest`，meta-data 可添加到具体组件或 application。
+
+```json
+{
+  "tag": "activity",
+  "attributes": {"android:name": ".ExtraActivity", "android:exported": true},
+  "children": [
+    {"tag": "intent-filter", "children": [
+      {"tag": "action", "attributes": {"android:name": "android.intent.action.VIEW"}},
+      {"tag": "category", "attributes": {"android:name": "android.intent.category.DEFAULT"}},
+      {"tag": "data", "attributes": {"android:scheme": "demo"}}
+    ]},
+    {"tag": "meta-data", "attributes": {"android:name": "mode", "android:value": "demo"}}
+  ]
+}
+```
+
+属性对象的键是 XML 属性名（如 android:enabled）；值支持字符串、布尔值、数字。
+使用内置 Android framework 属性定义编码正确的资源 ID 和类型，无需 Android SDK：
+`false` 编码为布尔值，`singleTask` 编码为枚举，`orientation|screenSize` 编码为 flags。
+资源引用可写 `@string/title`、`@android:style/Theme.Material`、`@0x7f010000`，只引用已有资源，不创建资源。
+符号引用不存在时失败；数字 ID 的存在性不校验。CLI 含 `|` 等 shell 特殊字符的值须加引号。
+新 Android 属性若不在捆绑 framework 中会报错，不会静默写成无 ID 属性。
+
+需要精确控制类型时，可用 `{"type":"STRING","value":"true"}` 强制字面量字符串；
+其他类型用 `{"type":"REFERENCE","data":"0x7f010000"}` 等原始二进制形式。
+type 使用 `STRING`、`BOOLEAN`、`DEC`、`HEX`、`REFERENCE`、`ATTRIBUTE`、`FLOAT`、`DIMENSION`、
+`FRACTION`、`NULL`、`COLOR_ARGB8` / `COLOR_RGB8` / `COLOR_ARGB4` / `COLOR_RGB4`、
+`DYNAMIC_REFERENCE`、`DYNAMIC_ATTRIBUTE`。除 STRING 外，data 是有符号 32 位整数或最多八位十六进制字符串，
+表示原始位模式，并非浮点数、尺寸或比例的十进制值；这是高级接口，调用者负责类型适合目标属性。
+show 使用此格式保留类型；取数组中的单个对象可作为 add/replace 的 node（整棵 Manifest 根不可替换）。
+节点可带 `namespaces` 对象，例如 `{"custom":"https://example.org/custom"}`；属性使用对应前缀。
+update 只能使用 Android 或该节点上已可见的前缀。未涉及的属性、子节点、注释和命名空间保留。
+replace 是整棵子树替换：未提供的属性、子节点和注释会被移除，节点在兄弟节点中的位置保持不变。
+
+批量补丁可混合节点、属性和 DEX 操作：
+
+```json
+{
+  "version": 1,
+  "operations": [
+    {"op": "manifest.update", "component": "activity", "name": ".MainActivity",
+     "attributes": {"android:enabled": true}, "removeAttributes": ["android:permission"]},
+    {"op": "manifest.add", "parent": "/manifest/application/activity[@android:name='.MainActivity']",
+     "node": {"tag": "meta-data", "attributes": {"android:name": "mode", "android:value": "new"}}},
+    {"op": "manifest.delete", "component": "service", "name": ".LegacyService"},
+    {"op": "dex.delete", "classes": ["com.example.LegacyService"]}
+  ]
+}
+```
+
+update 还可通过 CLI `--attributes attributes.json` 传属性对象，搭配重复的 `--attribute` / `--remove-attribute`。
+同一属性不能重复设置，或同时设置和删除。字面量组件名的重名按类型及归一化名称检测（activity 和 alias 共用名称空间）。
+新增或编辑组件要求非空 android:name 字符串或非零资源引用；资源引用形式的组件名须用 XPath 定位，
+不会展开为某个资源配置下的名字，重名检查也不展开资源引用。
+工具检查定位、JSON 格式、属性编码、组件父节点及重名，但不执行完整的 Android Manifest schema 或运行时校验。
+provider 的 authorities、alias 的 targetActivity、组件实现和所需资源由调用者提供。
+删除组件不会自动删除指向它的 alias、parentActivityName 或其他声明引用，请在同一补丁中调整。
+
+组件声明编辑不会添加/替换/删除 DEX 类。新增实现用 dex.add；改类实现用 dex.replace；
+类重命名并同步静态引用用 dex.rename；删除声明与对应类可在同一批使用 manifest.delete + dex.delete。
+后者对最终状态执行既有引用检查，操作顺序不影响检查结果。任意错误不发布输出，安装前仍需签名。
+完整示例：`java -jar ed4apk.jar examples manifest`。
 
 ## 完整示例：新增辅助类，让已有类调用，再一次打包
 
@@ -132,11 +231,15 @@ ed4apk 无法恢复原应用私钥。若安装失败，不要自动卸载原应�
 | dex.delete | classes:非空类名数组 | allowReferenced:false；全部类必须存在；默认最终仍有直接引用则整批失败 |
 | dex.rename | from:旧类名，to:新类名 | 无；同包改名，旧类必须存在，新类必须不存在且未被静态引用 |
 | manifest.set | label / versionName / versionCode 至少一个 | label、versionName 是字符串；versionCode 是正整数 |
+| manifest.add | parent:父节点 XPath；node:节点对象 | 无；节点追加到父节点末尾 |
+| manifest.update | path 或 component+name；attributes / removeAttributes 至少一项 | attributes:属性对象；removeAttributes:属性名数组 |
+| manifest.replace | path 或 component+name；node:完整节点对象 | 保留兄弟节点位置 |
+| manifest.delete | path 或 component+name | 删除整棵子树，根节点不可删除 |
 | resource.set-string | id:字符串，如 "0x7f010000"；value:字符串 | config:""（默认配置），例如 "en" 或 "-en" |
 
-完整的九种操作示例：`java -jar ed4apk.jar examples batch`。
+文件、DEX、资源操作示例：`java -jar ed4apk.jar examples batch`；精细 Manifest 编辑示例：`java -jar ed4apk.jar examples manifest`。
 
-文件路径规则：`path` 是 APK 内部路径，使用 `/`，区分大小写，不是本地路径。
+文件操作路径规则：`path` 是 APK 内部路径，使用 `/`，区分大小写，不是本地路径。
 JSON 中的 source、inputs、libraries 相对于 JSON 所在目录；支持绝对路径。
 命令行中的 APK、输出、密钥库、--lib 路径相对于当前工作目录。路径含空格时加引号。
 Windows JSON 路径优先用 `/`；使用反斜杠时必须按 JSON 规则转义。
@@ -252,8 +355,8 @@ patch.json（以下两项顺序互换也可以）：
 ```
 
 相互引用的类可以一起删除；删除后又新增同名类，则最终仍存在，不触发删除保护。
-Manifest 组件声明需另行准备修改后的二进制 Manifest，通过 file.replace 提交；
-manifest.set 目前不编辑组件声明。
+Manifest 组件声明可在同一补丁中通过 manifest.delete 删除，或用 manifest.update / manifest.replace 修改；
+也支持通过 file.replace 提交整个二进制 Manifest。manifest.set 保持仅编辑应用名称和版本信息。
 
 检查不能保证任意运行时链接都成功：反射字符串、JNI、动态加载及上述范围外约定不在检查内，
 也不验证替换/重新添加类后的方法和字段兼容性。

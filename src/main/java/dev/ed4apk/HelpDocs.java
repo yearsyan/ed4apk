@@ -23,7 +23,9 @@ final class HelpDocs {
                 List.of("README.md", "patch.json", "Helper.java", "call-site.txt")));
         EXAMPLES.put("class-rename", new Example("Discover references, preview and rename a class within its package",
                 List.of("README.md", "patch.json")));
-        EXAMPLES.put("batch", new Example("All nine patch operations, with signing and verification",
+        EXAMPLES.put("manifest", new Example("Edit components, attributes, intent filters and metadata in binary Manifest",
+                List.of("README.md", "patch.json", "activity.json")));
+        EXAMPLES.put("batch", new Example("File, DEX and resource patch operations, with signing and verification",
                 List.of("README.md", "patch.json")));
     }
 
@@ -73,7 +75,7 @@ final class HelpDocs {
                     "These commands do not edit an APK or need network access; shell redirection creates files."})
     static class Examples implements Callable<Integer> {
         @Parameters(index = "0", arity = "0..1", paramLabel = "TOPIC",
-                description = "files, dex-call, java-class, class-rename or batch") String topic;
+                description = "files, dex-call, java-class, class-rename, manifest or batch") String topic;
         @Option(names = "--file", paramLabel = "NAME", description = "Print one listed file verbatim; requires TOPIC")
         String file;
         @Spec CommandLine.Model.CommandSpec spec;

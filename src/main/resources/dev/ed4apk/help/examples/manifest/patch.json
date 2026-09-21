@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "operations": [
+    {
+      "op": "manifest.add",
+      "parent": "/manifest/application",
+      "node": {
+        "tag": "service",
+        "attributes": {"android:name": ".SyncService", "android:exported": false}
+      }
+    },
+    {
+      "op": "manifest.update",
+      "component": "activity",
+      "name": ".MainActivity",
+      "attributes": {"android:exported": true, "android:launchMode": "singleTop"}
+    },
+    {
+      "op": "manifest.replace",
+      "path": "/manifest/application/activity[@android:name='.MainActivity']/meta-data[@android:name='mode']",
+      "node": {"tag": "meta-data", "attributes": {"android:name": "mode", "android:value": "new"}}
+    },
+    {"op": "manifest.delete", "component": "receiver", "name": ".LegacyReceiver"}
+  ]
+}
