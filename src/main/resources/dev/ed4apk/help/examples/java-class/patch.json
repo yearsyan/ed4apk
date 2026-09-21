@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "operations": [
+    {"op": "dex.add", "inputs": ["classes/com/example/ed4apk/Helper.class"], "dex": "classes.dex"},
+    {"op": "dex.replace", "inputs": ["Main.smali"]}
+  ]
+}

@@ -1,0 +1,1 @@
+invoke-static {}, Lcom/example/ed4apk/Helper;->onEnter()V

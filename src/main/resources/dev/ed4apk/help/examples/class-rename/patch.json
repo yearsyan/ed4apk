@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "operations": [
+    {"op": "dex.rename", "from": "com.example.Main", "to": "com.example.Home"}
+  ]
+}

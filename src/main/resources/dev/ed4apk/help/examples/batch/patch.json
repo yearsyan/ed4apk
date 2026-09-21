@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "operations": [
+    {"op": "dex.add", "inputs": ["Helper.smali"], "dex": "classes.dex"},
+    {"op": "dex.replace", "inputs": ["Main.smali"]},
+    {"op": "dex.delete", "classes": ["com.example.Legacy"]},
+    {"op": "dex.rename", "from": "com.example.Main", "to": "com.example.Home"},
+    {"op": "file.replace", "path": "assets/config.json", "source": "config.json"},
+    {"op": "file.add", "path": "assets/new.txt", "source": "new.txt"},
+    {"op": "file.delete", "path": "assets/obsolete.txt"},
+    {"op": "manifest.set", "label": "Edited", "versionName": "2.0", "versionCode": 2},
+    {"op": "resource.set-string", "id": "0x7f010000", "config": "en", "value": "Hello"}
+  ]
+}

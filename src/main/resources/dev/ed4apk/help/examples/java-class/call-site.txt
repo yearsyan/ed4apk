@@ -1,0 +1,2 @@
+invoke-static {}, Lcom/example/ed4apk/Helper;->value()I
+move-result v0

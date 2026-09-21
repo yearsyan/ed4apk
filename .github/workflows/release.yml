@@ -1,0 +1,122 @@
+name: Build and release
+
+on:
+  push:
+    tags:
+      - '**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build and test (Java 11 runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 11 for runtime tests
+        id: java11
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      - name: Set up JDK 21 for Gradle and compilation
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle and validate the wrapper
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      - name: Build fat JAR and run all tests
+        env:
+          JAVA11_HOME: ${{ steps.java11.outputs.path }}
+        run: |
+          args=("-Ped4apkTestJava=$JAVA11_HOME/bin/java")
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            test -n "$version"
+            args+=("-PreleaseVersion=$version")
+          fi
+          ./gradlew --no-daemon --console=plain build "${args[@]}"
+
+      - name: Prepare release assets and check Java 11 startup
+        env:
+          JAVA11_HOME: ${{ steps.java11.outputs.path }}
+        run: |
+          "$JAVA11_HOME/bin/java" -jar build/libs/ed4apk.jar --version
+          "$JAVA11_HOME/bin/java" -jar build/libs/ed4apk.jar --help-all > build/help-all.md
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            test "$("$JAVA11_HOME/bin/java" -jar build/libs/ed4apk.jar --version)" = "ed4apk ${GITHUB_REF_NAME#v}"
+          fi
+          mkdir -p dist
+          cp build/libs/ed4apk.jar dist/ed4apk.jar
+          cd dist
+          sha256sum ed4apk.jar > ed4apk.jar.sha256
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ed4apk-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-reports-${{ github.sha }}
+          path: |
+            build/reports/tests/test/
+            build/test-results/test/*.xml
+          retention-days: 14
+          if-no-files-found: warn
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download tested release assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ed4apk-${{ github.sha }}
+          path: dist
+
+      - name: Verify checksum
+        working-directory: dist
+        run: sha256sum --check ed4apk.jar.sha256
+
+      - name: Publish release with JAR and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          args=(--verify-tag --title "ed4apk $RELEASE_TAG" --generate-notes)
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" dist/ed4apk.jar dist/ed4apk.jar.sha256 "${args[@]}"
