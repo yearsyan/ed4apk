@@ -237,6 +237,11 @@ final class BatchEditor {
                     manifestDirty = true;
                     break;
                 }
+                case "manifest.add": case "manifest.update": case "manifest.replace": case "manifest.delete": {
+                    new ManifestEditor(manifest(), resources()).execute(op);
+                    manifestDirty = true;
+                    break;
+                }
                 case "resource.set-string": {
                     if (resources == null) resources = TableBlock.load(new ByteArrayInputStream(read("resources.arsc")));
                     long id = Long.decode(op.text("id"));

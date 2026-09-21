@@ -1,0 +1,20 @@
+{
+  "tag": "activity",
+  "attributes": {
+    "android:name": ".ExtraActivity",
+    "android:exported": true,
+    "android:launchMode": "singleTask"
+  },
+  "children": [
+    {
+      "tag": "intent-filter",
+      "children": [
+        {"tag": "action", "attributes": {"android:name": "android.intent.action.VIEW"}},
+        {"tag": "category", "attributes": {"android:name": "android.intent.category.DEFAULT"}},
+        {"tag": "category", "attributes": {"android:name": "android.intent.category.BROWSABLE"}},
+        {"tag": "data", "attributes": {"android:scheme": "demo", "android:host": "open"}}
+      ]
+    },
+    {"tag": "meta-data", "attributes": {"android:name": "source", "android:value": "ed4apk"}}
+  ]
+}

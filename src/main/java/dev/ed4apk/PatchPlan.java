@@ -15,6 +15,10 @@ final class PatchPlan {
     private PatchPlan(List<Operation> operations) { this.operations = List.copyOf(operations); }
     List<Operation> operations() { return operations; }
 
+    static PatchPlan manifest(com.fasterxml.jackson.databind.node.ObjectNode value) throws IOException {
+        return new PatchPlan(List.of(new Operation(value, Path.of(".").toAbsolutePath(), 1, text(value, "op"))));
+    }
+
     static PatchPlan renameClass(String from, String to) {
         var value = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
         value.put("op", "dex.rename").put("from", from).put("to", to);
@@ -34,10 +38,14 @@ final class PatchPlan {
         return new PatchPlan(List.of(new Operation(value, Path.of(".").toAbsolutePath(), 1, "dex.delete")));
     }
 
-    static PatchPlan read(Path file) throws IOException {
+    static JsonNode readJson(Path file) throws IOException {
         var factory = JsonFactory.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
         var mapper = JsonMapper.builder(factory).enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
-        JsonNode root = mapper.readTree(file.toFile());
+        return mapper.readTree(file.toFile());
+    }
+
+    static PatchPlan read(Path file) throws IOException {
+        JsonNode root = readJson(file);
         fields(root, Set.of("version", "operations"));
         if (!root.path("version").isIntegralNumber() || !root.path("version").canConvertToInt()
                 || root.path("version").intValue() != 1)
@@ -59,6 +67,10 @@ final class PatchPlan {
                     case "dex.delete": allowed = Set.of("op", "classes", "allowReferenced"); break;
                     case "dex.rename": allowed = Set.of("op", "from", "to"); break;
                     case "manifest.set": allowed = Set.of("op", "label", "versionName", "versionCode"); break;
+                    case "manifest.add": allowed = Set.of("op", "parent", "node"); break;
+                    case "manifest.update": allowed = Set.of("op", "path", "component", "name", "attributes", "removeAttributes"); break;
+                    case "manifest.replace": allowed = Set.of("op", "path", "component", "name", "node"); break;
+                    case "manifest.delete": allowed = Set.of("op", "path", "component", "name"); break;
                     case "resource.set-string": allowed = Set.of("op", "id", "config", "value"); break;
                     default: throw new IOException("Unknown operation: " + kind);
                 }
@@ -71,7 +83,7 @@ final class PatchPlan {
         return new PatchPlan(operations);
     }
 
-    private static void fields(JsonNode node, Set<String> allowed) throws IOException {
+    static void fields(JsonNode node, Set<String> allowed) throws IOException {
         if (node == null || !node.isObject()) throw new IOException("Expected a JSON object");
         var names = node.fieldNames();
         while (names.hasNext()) {
@@ -98,6 +110,7 @@ final class PatchPlan {
             this.kind = kind;
         }
         String kind() { return kind; }
+        JsonNode node(String name) { return value.get(name); }
         String text(String name) throws IOException { return PatchPlan.text(value, name); }
         String optionalText(String name, String fallback) throws IOException {
             return value.has(name) ? text(name) : fallback;

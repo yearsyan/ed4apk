@@ -1,6 +1,6 @@
 # batch：混合操作与签名
 
-这是全部九种操作的格式模板，不是适用于任意 APK 的补丁。先按目标 APK 调整：
+这是文件、DEX 与资源操作的格式模板，不是适用于任意 APK 的补丁。先按目标 APK 调整：
 
 - Helper.smali 必须是不存在的新类；Main.smali 必须来自目标已有类的完整导出并已编辑。
   可先运行 `java -jar ed4apk.jar examples dex-call` 获取完整准备流程及 Helper 文件。
@@ -28,3 +28,5 @@ java -jar ed4apk.jar dex list signed.apk
 省略 --ks/--alias 时输出未签名 APK。某项操作或签名失败，整批不发布，不会留下部分修改。
 同一 DEX 的类修改只在最后写回一次。若加入整文件 DEX / resources.arsc / Manifest 替换，
 它会覆盖此前对该文件的结构化修改；请明确安排执行顺序。
+
+精细 Manifest 节点和四大组件编辑另见 `java -jar ed4apk.jar examples manifest`。
