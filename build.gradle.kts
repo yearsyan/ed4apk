@@ -52,6 +52,9 @@ tasks.processResources {
     from("THIRD_PARTY.md") {
         into("META-INF/third-party")
     }
+    from("LICENSE") {
+        into("META-INF/ed4apk")
+    }
 }
 
 dependencies {
