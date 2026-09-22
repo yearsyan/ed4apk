@@ -24,7 +24,8 @@ import java.util.concurrent.Callable;
                 "", "Editing removes old signatures. Use sign, or apply --ks KEYSTORE --alias ALIAS.",
                 "Output must differ from input; --force only replaces an existing output.",
                 "Exit codes: 0 success/help; 1 operation failed; 2 invalid command line."},
-        subcommands = {Main.Info.class, Main.Apply.class, Main.Replace.class, Main.Dex.class, Main.Manifest.class,
+        subcommands = {ApkInfoCommand.class, FileCommands.class, NativeCommands.class,
+                Main.Apply.class, Main.Replace.class, Main.Dex.class, Main.Manifest.class,
                 Main.Resource.class, Main.Sign.class, Main.Verify.class, HelpDocs.Examples.class, CommandLine.HelpCommand.class})
 public final class Main implements Runnable {
     @Option(names = "--help-all", description = "Print the complete offline guide and every command's help (for LLMs)")
@@ -37,7 +38,7 @@ public final class Main implements Runnable {
 
     static CommandLine commandLine() {
         CommandLine cli = new CommandLine(new Main()).setExecutionExceptionHandler((error, command, result) -> {
-            command.getErr().println("Error: " + error.getMessage());
+            command.getErr().println("Error: " + Inspection.safeText(error.getMessage()));
             if (Boolean.getBoolean("ed4apk.debug")) error.printStackTrace(command.getErr());
             return 1;
         });
@@ -62,20 +63,6 @@ public final class Main implements Runnable {
         Path path;
         @Option(names = "--force", description = "Replace an existing output file") boolean force;
         void unsigned() { System.out.println("Wrote unsigned APK: " + path + " (use ed4apk sign to install)"); }
-    }
-
-    @Command(name = "info", mixinStandardHelpOptions = true, description = "Show APK metadata and DEX entries")
-    static class Info implements Callable<Integer> {
-        @Parameters(index = "0", paramLabel = "APK", description = "Input APK file") Path apk;
-        public Integer call() throws Exception {
-            ApkArchive.validate(apk);
-            var manifest = ResourceEditor.manifest(apk);
-            System.out.println("Package: " + manifest.getPackageName());
-            System.out.println("Version: " + manifest.getVersionName() + " (" + manifest.getVersionCode() + ")");
-            System.out.println("Min SDK: " + ResourceEditor.minSdk(apk));
-            ApkArchive.dexNames(apk).forEach(System.out::println);
-            return 0;
-        }
     }
 
     @Command(name = "replace", mixinStandardHelpOptions = true,
@@ -163,7 +150,8 @@ public final class Main implements Runnable {
     @Command(name = "dex", mixinStandardHelpOptions = true, description = "Read and edit DEX classes",
             footer = {"", "Class names accept com.example.Main or 'Lcom/example/Main;'.",
                     "Use ed4apk dex COMMAND --help for examples. Safe deletion: dex delete, or dex.delete in apply."},
-            subcommands = {DexList.class, DexExport.class, DexReplace.class, DexAdd.class, DexDelete.class,
+            subcommands = {DexInspectionCommands.ListCommand.class, DexInspectionCommands.Info.class,
+                    DexExport.class, DexReplace.class, DexAdd.class, DexDelete.class,
                     DexRefs.class, DexRename.class})
     static class Dex {}
 
@@ -274,12 +262,6 @@ public final class Main implements Runnable {
         }
     }
 
-    @Command(name = "list", mixinStandardHelpOptions = true, description = "List class descriptors and owning DEX")
-    static class DexList implements Callable<Integer> {
-        @Parameters(index = "0", paramLabel = "APK", description = "Input APK file") Path apk;
-        public Integer call() throws Exception { DexEditor.listClasses(apk).forEach(System.out::println); return 0; }
-    }
-
     @Command(name = "export", mixinStandardHelpOptions = true, description = "Export one class as Smali",
             footer = {"", "Example: ed4apk dex export app.apk com.example.Main -o Main.smali",
                     "Edit the exported Smali, then use dex replace or a dex.replace operation in apply."})
@@ -347,7 +329,7 @@ public final class Main implements Runnable {
 
     @Command(name = "manifest", mixinStandardHelpOptions = true,
             description = "Inspect and edit binary AndroidManifest.xml and component declarations",
-            subcommands = {ManifestSet.class, ManifestCommands.Show.class, ManifestCommands.Add.class,
+            subcommands = {ManifestSet.class, ManifestCommands.Show.class, ManifestCommands.Summary.class, ManifestCommands.Add.class,
                     ManifestCommands.Update.class, ManifestCommands.Replace.class, ManifestCommands.Delete.class})
     static class Manifest {}
 
@@ -368,7 +350,8 @@ public final class Main implements Runnable {
     }
 
     @Command(name = "resource", mixinStandardHelpOptions = true,
-            description = "Edit compiled resources", subcommands = SetString.class)
+            description = "Browse and edit compiled resources",
+            subcommands = {SetString.class, ResourceCommands.ListCommand.class, ResourceCommands.Show.class})
     static class Resource {}
 
     @Command(name = "set-string", mixinStandardHelpOptions = true,

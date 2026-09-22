@@ -1,6 +1,6 @@
 # ed4apk 离线使用指南 / Offline agent guide
 
-ed4apk 是 APK 增量编辑 CLI。运行需要 Java 11+；所有库在 ed4apk.jar 内，不需要 Android SDK、
+ed4apk 是 APK 浏览、检查与增量编辑 CLI。运行需要 Java 11+；所有库在 ed4apk.jar 内，不需要 Android SDK、
 Gradle、外部 JAR 或联网。JRE 不包含在 JAR 中。以下命令中的 ed4apk.jar 换成实际 JAR 路径。
 命令参考里简写的 `ed4apk` 均表示 `java -jar ed4apk.jar`，不要求安装名为 ed4apk 的可执行文件。
 
@@ -8,8 +8,13 @@ Gradle、外部 JAR 或联网。JRE 不包含在 JAR 中。以下命令中的 ed
 
 | 目标 | 命令 |
 | --- | --- |
-| 查看包名、版本、minSdk、DEX 文件名 | `java -jar ed4apk.jar info app.apk` |
+| 查看包名、版本、SDK、包体积、ABI、DEX 文件名 | `java -jar ed4apk.jar info app.apk --json` |
+| 列出包内文件、大小和压缩方式 | `java -jar ed4apk.jar file list app.apk --prefix lib/` |
+| 预览 / 提取单个文件 | `java -jar ed4apk.jar file show app.apk assets/config.json` / `file extract app.apk assets/config.json -o config.json` |
+| 查看 SO 清单 / 检查 16 KiB 对齐 | `java -jar ed4apk.jar native list app.apk` / `native check app.apk --json` |
 | 查看 Manifest / 四大组件 | `java -jar ed4apk.jar manifest show app.apk` |
+| 查看可读 XML / Manifest 摘要 | `java -jar ed4apk.jar manifest show app.apk --format xml` / `manifest summary app.apk` |
+| 查询资源 ID、名称、所有配置和值 | `java -jar ed4apk.jar resource list app.apk --type string` |
 | 精细修改组件属性 | `java -jar ed4apk.jar manifest update app.apk --component activity --name .Main --attribute android:exported=false -o edited.apk` |
 | 查看全部类及其所在 DEX | `java -jar ed4apk.jar dex list app.apk` |
 | 查询类定义及静态引用 | `java -jar ed4apk.jar dex refs app.apk com.example.Main --json` |
@@ -21,8 +26,71 @@ Gradle、外部 JAR 或联网。JRE 不包含在 JAR 中。以下命令中的 ed
 | 获取流程和可复制文件 | `java -jar ed4apk.jar examples` |
 
 先读取目标 APK 的信息，核实类名与 DEX 名。不要把示例类名、路径或资源 ID 当作目标 APK 的真实值。
-ed4apk 当前没有 APK 文件列表、资源 ID 查询或 Java 反编译命令；已有类通过 `dex list` 查询，
-资源路径和 ID 需由用户提供或用其他 APK/ZIP 分析工具获取，不能猜测。
+包内路径通过 `file list` 查找，资源 ID 通过 `resource list/show` 查询，已有类通过 `dex list` 查询。
+不提供 Java/Kotlin 反编译；阅读单类指令可用 `dex export` 导出 Smali。
+
+## 只读浏览与静态检查
+
+```sh
+# 元数据概览不会解析所有 DEX/ELF，也不自动验证签名
+java -jar ed4apk.jar info app.apk --json
+
+# 文件列表按路径升序；size / compressed-size 排序为大小降序
+java -jar ed4apk.jar file list app.apk --sort size --limit 20 --json
+java -jar ed4apk.jar file list app.apk --prefix assets/
+java -jar ed4apk.jar file show app.apk assets/config.json
+java -jar ed4apk.jar file show app.apk assets/data.bin --format hex --limit 256
+java -jar ed4apk.jar file extract app.apk assets/config.json -o config.json
+
+# SO 清单只读目录；check / show 按需读取 ELF 头及 program headers
+java -jar ed4apk.jar native list app.apk
+java -jar ed4apk.jar native check app.apk --page-size 16384 --json
+java -jar ed4apk.jar native check app.apk --abi arm64-v8a
+java -jar ed4apk.jar native show app.apk lib/arm64-v8a/libfoo.so --json
+
+# Manifest 默认 JSON 与旧版兼容；XML 是可读解码结果
+java -jar ed4apk.jar manifest show app.apk --format xml
+java -jar ed4apk.jar manifest summary app.apk --json
+
+# 资源显示所有配置；引用保持原 ID，不任意选择一个语言展开
+java -jar ed4apk.jar resource list app.apk --type string --json
+java -jar ed4apk.jar resource show app.apk @string/app_name
+java -jar ed4apk.jar resource show app.apk 0x7f010000 --json
+
+# method/field ID 数包括引用，不等同于方法/字段定义数
+java -jar ed4apk.jar dex info app.apk --json
+java -jar ed4apk.jar dex list app.apk --dex classes2.dex --prefix com.example. --json
+```
+
+文件列表保留完整 ZIP 路径；`size` 为解压后字节数，`compressedSize` 为载荷字节数，后者之和不等于整个 APK 大小。
+未指定 `--limit` 时列出全部；JSON 的 `matchedCount/returnedCount/truncated` 明确表示列表截断。
+`file show` 的 auto/text/hex 预览默认读取至多 64 KiB，`--limit` 可设为 1 至 16 MiB；截断有明确提示。
+二进制内容自动显示 hex；文本中的终端控制字符会被转义。`--format xml` 解码二进制 XML，要求整个条目在读取上限内。
+`file extract` 流式提取单个条目的原始解压字节并校验 CRC；二进制 XML 不会自动转换，已有输出需要 `--force`。
+重复路径可以列出，但按路径读取/提取会拒绝歧义。ZIP 能打开时，即使 Manifest/DEX 损坏也能列文件；
+不支持的压缩方法、加密条目或无法建立目录的 ZIP 会明确报错。
+
+`native check` 的检查范围是当前 APK 的 `lib/<abi>/*.so`，16 KiB 策略覆盖 arm64-v8a 和 x86_64。
+ZIP 对齐检查实际数据起点，ELF LOAD 检查每段 `p_align` 和文件偏移/虚拟地址同余，RELRO 检查保护范围末端。
+压缩 SO 的 ZIP 对齐为 `not_applicable`，仍检查 ELF 和 `extractNativeLibs` 加载声明；没有足够上下文时为 `unknown`。
+32 位 ABI 的 16 KiB 策略不适用；未知 ABI、损坏/超出解析范围的库不会当作通过。ELF 头读取预算为每库 8 MiB。
+无标准路径 SO 只表示当前 APK 未发现这类条目；assets 中的自定义加载、运行时下载和其他 split 不在扫描范围。
+重新打包只能修复 ZIP 布局，ELF 不合格需重新编译/更换库。静态检查通过不能代替 16 KiB 设备运行验证。
+
+`manifest show` 默认仍输出可回用于 add/replace 的 typed JSON 数组；XML 不恢复源码排版、注释或所有资源符号名。
+选择多个节点时输出各自包含继承命名空间的 XML 片段；无匹配时 XML 输出为空。
+`manifest summary` 区分声明缺失、字面 true/false 和未解析引用；启动候选包括 activity-alias，要求 MAIN 和启动 category 在同一个 filter。
+读取 Manifest 上限 16 MiB。`resource list/show` 读取表上限 128 MiB，保留复杂 BAG 的 parent/item ID 和类型；
+无 resources.arsc 时 list 成功返回空清单（`tablePresent=false`），show 查找具体资源则失败。show 也支持 `@package:type/name`。
+`dex info` 仅读头并检查区间，不验证完整 DEX 校验和。041+ 容器保留版本、计数为 null，并返回未完整读取。
+`dex list` 读取上限每 DEX 256 MiB、每次扫描至多 1,000,000 个类；`com.example.` 或 `Lcom/example/` 表示包边界前缀。
+
+新浏览命令的 `--json` 输出为 `schemaVersion: 1 / data / diagnostics`，stdout 只有 JSON；
+`file extract` 没有 JSON 模式，`manifest show` 使用 `--format json|xml`，已有 show/refs JSON 格式不变。
+数值未知时为 null，检查状态为 `pass/fail/unknown/not_applicable`；ELF 无符号地址以十六进制字符串保留精度。
+读取/解析不完整返回 1，参数错误返回 2；尽可能保留其余条目结果。`native check` 的 fail/unknown 返回 1，
+全部满足或明确无适用条目返回 0。`native list` 列出已知 ZIP 不对齐不算命令失败；自动化门禁用 check。
+
 
 ## 最小示例：修改名称并得到新的 APK
 

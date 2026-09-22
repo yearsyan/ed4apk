@@ -49,6 +49,11 @@ final class ManifestEditor {
         return new ManifestEditor(ResourceEditor.manifest(apk), table);
     }
 
+    /** Inspection needs neither resources.arsc nor a mutable archive. References remain references. */
+    static ManifestEditor inspect(ApkInspectionSession session) throws IOException {
+        return new ManifestEditor(ManifestInspector.read(session), null);
+    }
+
     void execute(PatchPlan.Operation op) throws IOException {
         if (op.kind().equals("manifest.add")) {
             ResXmlElement parent = unique(selectPath(op.text("parent")));
@@ -328,6 +333,27 @@ final class ManifestEditor {
         for (var element : select(path == null && component == null && name == null ? "/manifest" : path, component, name))
             result.add(describe(element, true));
         return result;
+    }
+
+    String showXml(String path, String component, String name) throws IOException {
+        StringWriter output = new StringWriter();
+        for (var element : select(path == null && component == null && name == null ? "/manifest" : path, component, name)) {
+            // Each selected subtree is a standalone fragment, including namespaces inherited
+            // from its ancestors. Use a separate serializer so namespace state cannot leak.
+            var serializer = com.reandroid.xml.XMLFactory.newSerializer(output);
+            var namespaces = element.getVisibleNamespaces();
+            Set<String> prefixes = new HashSet<>();
+            while (namespaces.hasNext()) {
+                var ns = namespaces.next();
+                if (prefixes.add(ns.getPrefix())) serializer.setPrefix(ns.getPrefix(), ns.getUri());
+            }
+            // false retains the binary names and unresolved numeric resource references.
+            // ARSCLib supplies Android literal escaping, enums, typed values and XML escaping.
+            ManifestInspector.serializeXml(element, serializer);
+            serializer.flush();
+            output.append('\n');
+        }
+        return output.toString();
     }
 
     private ObjectNode describe(ResXmlElement element, boolean includeInheritedNamespaces) throws IOException {
