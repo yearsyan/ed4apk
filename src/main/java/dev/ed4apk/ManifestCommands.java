@@ -38,18 +38,95 @@ final class ManifestCommands {
     }
 
     @Command(name = "show", mixinStandardHelpOptions = true,
-            description = "Print Manifest elements as JSON, with exact binary attribute types",
+            description = "Print Manifest elements as typed JSON (default) or readable XML",
             footer = {"", "ed4apk manifest show app.apk",
                     "ed4apk manifest show app.apk --path /manifest/application/activity",
                     "ed4apk manifest show app.apk --component activity --name .Main",
                     "Outputs an array. One element object can be saved as --node for add/replace.",
-                    "No selector means the whole Manifest. No matches yields []. show permits multiple matches."})
+                    "No selector means the whole Manifest. No matches yields [] in JSON, empty output in XML.",
+                    "XML selectors may output multiple standalone fragments, each with inherited namespaces.",
+                    "XML is a decoded view; source formatting and resource symbols are not recovered.",
+                    "ed4apk manifest show app.apk --format xml"})
     static class Show implements Callable<Integer> {
         @Parameters(index = "0", paramLabel = "APK") Path apk;
         @Mixin Target target;
+        enum Format { json, xml }
+        @Option(names = "--format", defaultValue = "json", description = "Output format: ${COMPLETION-CANDIDATES}")
+        Format format;
         public Integer call() throws Exception {
-            Main.printJson(ManifestEditor.open(apk).show(target.path, target.component, target.name));
+            try (var session = new ApkInspectionSession(apk)) {
+                var editor = ManifestEditor.inspect(session);
+                if (format == Format.xml) System.out.print(editor.showXml(target.path, target.component, target.name));
+                else Main.printJson(editor.show(target.path, target.component, target.name));
+            }
             return 0;
+        }
+    }
+
+    @Command(name = "summary", mixinStandardHelpOptions = true,
+            description = "Show declared permissions, components, launch candidates and application flags",
+            footer = {"Missing declarations are null; resource-dependent values retain their binary type and data.",
+                    "Launch candidates include activity-alias and require MAIN and launcher category in the same filter.",
+                    "Candidates are declarations, not a guarantee of launchability on a device."})
+    static class Summary implements Callable<Integer> {
+        @Parameters(index = "0", paramLabel = "APK") Path apk;
+        @Option(names = "--json", description = "Print a versioned JSON report") boolean json;
+        public Integer call() throws Exception {
+            Map<String, Object> data = null;
+            List<Map<String, Object>> diagnostics = new ArrayList<>();
+            try (var session = new ApkInspectionSession(apk)) {
+                diagnostics.addAll(session.diagnostics());
+                data = ManifestInspector.summary(session);
+            } catch (Exception e) {
+                diagnostics.add(Inspection.diagnostic("manifest_read_failed", "AndroidManifest.xml", Inspection.message(e)));
+            }
+            if (json) Main.printJson(Inspection.report(data, diagnostics));
+            else {
+                if (data != null) printSummary(data);
+                Inspection.printDiagnostics(diagnostics);
+            }
+            return diagnostics.isEmpty() ? 0 : 1;
+        }
+
+        private static void printSummary(Map<String, Object> data) {
+            System.out.println("Package: " + Inspection.safeText((String) data.get("packageName")));
+            System.out.println("Debuggable: " + declared(data.get("debuggable")));
+            System.out.println("Extract native libs: " + declared(data.get("extractNativeLibs")));
+            System.out.println("Application enabled: " + declared(data.get("applicationEnabled")));
+            System.out.println("Permissions:");
+            for (Object item : (List<?>) data.get("permissions")) {
+                Map<?, ?> permission = (Map<?, ?>) item;
+                System.out.println("  " + declared(permission.get("name")) + " (" + permission.get("tag")
+                        + (Boolean.TRUE.equals(((Map<?, ?>) permission.get("maxSdkVersion")).get("present"))
+                        ? ", maxSdk=" + declared(permission.get("maxSdkVersion")) : "") + ")");
+            }
+            System.out.println("Components:");
+            for (Object item : (List<?>) data.get("components")) {
+                Map<?, ?> component = (Map<?, ?>) item;
+                System.out.println("  " + component.get("kind") + " " + componentName(component)
+                        + " exported=" + declared(component.get("exported")) + " enabled=" + declared(component.get("enabled"))
+                        + ("activity-alias".equals(component.get("kind")) ? " target=" + declared(component.get("targetActivity")) : ""));
+            }
+            System.out.println("Launch candidates:");
+            for (Object item : (List<?>) data.get("launchCandidates")) {
+                Map<?, ?> candidate = (Map<?, ?>) item;
+                System.out.println("  " + candidate.get("kind") + " " + componentName(candidate)
+                        + ("activity-alias".equals(candidate.get("kind")) ? " -> " + declared(candidate.get("targetActivity")) : ""));
+            }
+            System.out.println(Inspection.safeText((String) data.get("launchCandidateScope")));
+        }
+
+        private static String componentName(Map<?, ?> component) {
+            Object full = component.get("qualifiedName");
+            return full == null ? declared(component.get("name")) : Inspection.safeText(full.toString());
+        }
+
+        private static String declared(Object value) {
+            Map<?, ?> declaration = (Map<?, ?>) value;
+            if (!Boolean.TRUE.equals(declaration.get("present"))) return "undeclared";
+            Object literal = declaration.get("declared");
+            return literal == null ? "unresolved " + declaration.get("type") + " " + declaration.get("data")
+                    : Inspection.safeText(literal.toString());
         }
     }
 

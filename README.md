@@ -5,13 +5,34 @@ ed4apk is a fast, standalone APK editor.
 Requires Java 11+. Download `ed4apk.jar` from [Releases](https://github.com/yearsyan/ed4apk/releases).
 No Android SDK or extra JARs are required.
 
-Inspect an APK, its classes, and its Activity declarations:
+Browse an APK, inspect native libraries, and read its Manifest without unpacking it:
 
 ```sh
 java -jar ed4apk.jar info app.apk
-java -jar ed4apk.jar dex list app.apk
-java -jar ed4apk.jar manifest show app.apk --path /manifest/application/activity
+java -jar ed4apk.jar file list app.apk --prefix lib/
+java -jar ed4apk.jar native check app.apk --json
+java -jar ed4apk.jar manifest show app.apk --format xml
+java -jar ed4apk.jar manifest summary app.apk
+java -jar ed4apk.jar resource list app.apk --type string
+java -jar ed4apk.jar dex info app.apk
+java -jar ed4apk.jar dex list app.apk --prefix com.example.
 ```
+
+Native checks report ZIP, ELF LOAD and RELRO alignment separately for 16 KiB pages;
+ZIP alignment alone does not prove runtime compatibility. Use `native show APK ENTRY`
+for segment details and `native list APK` for a lightweight inventory.
+
+Preview or extract one entry:
+
+```sh
+java -jar ed4apk.jar file show app.apk assets/config.json
+java -jar ed4apk.jar file extract app.apk lib/arm64-v8a/libfoo.so -o libfoo.so
+java -jar ed4apk.jar resource show app.apk @string/app_name --json
+```
+
+New inspection commands support `--json` (except `file extract`). `manifest show`
+keeps its existing typed JSON by default and uses `--format xml` for decoded XML.
+Previews are bounded; extraction streams the full entry and verifies its CRC.
 
 Change the app label and version:
 
